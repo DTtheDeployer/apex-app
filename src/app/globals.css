@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg:       #080a0f;
+  --surface:  #0f1117;
+  --surface2: #161b25;
+  --border:   rgba(255,255,255,0.08);
+  --green:    #00d084;
+  --red:      #ff4d6a;
+  --blue:     #5b7fff;
+  --gold:     #f5b642;
+  --muted:    #9ba3b8;
+  --subtle:   #6b7a99;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  background: #080a0f;
+  color: #fff;
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--surface); }
+::-webkit-scrollbar-thumb { background: var(--surface2); border-radius: 3px; }
+
+/* Focus rings */
+*:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+
+@layer components {
+  .card {
+    @apply bg-surface border border-white/[0.08] rounded-xl p-6;
+  }
+  .btn-primary {
+    @apply bg-green text-bg font-semibold px-5 py-2.5 rounded-lg text-sm
+           hover:bg-green/90 transition-colors cursor-pointer;
+  }
+  .btn-secondary {
+    @apply bg-surface2 text-white font-medium px-5 py-2.5 rounded-lg text-sm
+           border border-white/[0.08] hover:border-white/20 transition-colors cursor-pointer;
+  }
+  .btn-ghost {
+    @apply text-muted font-medium px-4 py-2 rounded-lg text-sm
+           hover:text-white hover:bg-surface2 transition-colors cursor-pointer;
+  }
+  .input {
+    @apply bg-surface2 border border-white/[0.08] rounded-lg px-4 py-2.5 text-sm text-white
+           placeholder:text-subtle focus:border-green/50 focus:outline-none w-full
+           transition-colors;
+  }
+  .label {
+    @apply text-xs font-medium text-muted uppercase tracking-wider mb-1.5 block;
+  }
+  .badge-green  { @apply text-xs font-medium px-2 py-0.5 rounded-full bg-green/10 text-green; }
+  .badge-red    { @apply text-xs font-medium px-2 py-0.5 rounded-full bg-red/10 text-red; }
+  .badge-blue   { @apply text-xs font-medium px-2 py-0.5 rounded-full bg-blue/10 text-blue; }
+  .badge-gold   { @apply text-xs font-medium px-2 py-0.5 rounded-full bg-gold/10 text-gold; }
+  .badge-subtle { @apply text-xs font-medium px-2 py-0.5 rounded-full bg-white/5 text-muted; }
+}
