@@ -1,4 +1,3 @@
-// src/middleware.ts
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
@@ -23,17 +22,16 @@ export async function middleware(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser()
   const { pathname } = request.nextUrl
+  const isRSC = request.headers.get('RSC') === '1' || request.nextUrl.searchParams.has('_rsc')
 
-  // Redirect unauthenticated users away from protected routes
   const protectedRoutes = ['/dashboard', '/settings']
   const isProtected = protectedRoutes.some(r => pathname.startsWith(r))
 
-  if (!user && isProtected) {
+  if (!user && isProtected && !isRSC) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // Redirect logged-in users away from auth pages
-  if (user && pathname === '/login') {
+  if (user && pathname === '/login' && !isRSC) {
     return NextResponse.redirect(new URL('/dashboard', request.url))
   }
 
