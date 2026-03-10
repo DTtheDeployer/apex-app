@@ -8,10 +8,7 @@ export async function GET(request: NextRequest) {
   const code = requestUrl.searchParams.get('code')
   const token_hash = requestUrl.searchParams.get('token_hash')
   const type = requestUrl.searchParams.get('type')
-  const next = requestUrl.searchParams.get('next') ?? '/dashboard'
-
-  const cookieStore = cookies()
-
+  const cookieStore = await cookies()
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -25,12 +22,7 @@ export async function GET(request: NextRequest) {
       },
     }
   )
-
-  if (code) {
-    await supabase.auth.exchangeCodeForSession(code)
-  } else if (token_hash && type) {
-    await supabase.auth.verifyOtp({ token_hash, type: type as any })
-  }
-
-  return NextResponse.redirect(new URL(next, requestUrl.origin))
+  if (code) await supabase.auth.exchangeCodeForSession(code)
+  else if (token_hash && type) await supabase.auth.verifyOtp({ token_hash, type: type as any })
+  return NextResponse.redirect(new URL('/dashboard', requestUrl.origin))
 }
