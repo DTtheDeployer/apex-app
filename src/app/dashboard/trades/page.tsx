@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'
 // src/app/dashboard/trades/page.tsx
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
