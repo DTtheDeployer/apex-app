@@ -1,4 +1,3 @@
-export const dynamic = 'force-dynamic'
 'use client'
 // src/app/settings/page.tsx — Bot configuration
 import { useState, useEffect } from 'react'
