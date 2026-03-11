@@ -1,11 +1,10 @@
 import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
+import { cookies } from 'next/headers'
 
 export async function POST(request: Request) {
   const { email, password } = await request.json()
   const cookieStore = cookies()
-
   const cookiesToSet: { name: string; value: string; options: any }[] = []
 
   const supabase = createServerClient(
@@ -15,6 +14,7 @@ export async function POST(request: Request) {
       cookies: {
         getAll() { return cookieStore.getAll() },
         setAll(incoming) {
+          // Don't touch cookieStore - capture cookies to set on the response
           incoming.forEach(c => cookiesToSet.push(c))
         },
       },
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
 
   const response = NextResponse.json({ success: true })
   cookiesToSet.forEach(({ name, value, options }) => {
-    response.cookies.set(name, value, options)
+    response.cookies.set(name, value, { ...options, httpOnly: true, sameSite: 'lax', path: '/' })
   })
 
   return response
