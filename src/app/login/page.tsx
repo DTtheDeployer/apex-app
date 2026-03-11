@@ -1,7 +1,6 @@
 'use client'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
 
 export default function LoginPage() {
   const [email, setEmail]       = useState('')
@@ -9,26 +8,20 @@ export default function LoginPage() {
   const [mode, setMode]         = useState<'login' | 'signup'>('login')
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState('')
-  const router = useRouter()
   const supabase = createClient()
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     setError('')
-
     if (mode === 'login') {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) { setError(error.message); setLoading(false); return }
-      router.refresh()
-      router.push('/dashboard')
     } else {
       const { error } = await supabase.auth.signUp({ email, password })
       if (error) { setError(error.message); setLoading(false); return }
-      router.refresh()
-      router.push('/dashboard')
     }
-    setLoading(false)
+    window.location.href = '/dashboard'
   }
 
   return (
@@ -48,12 +41,8 @@ export default function LoginPage() {
             </div>
             <span className="text-lg font-bold">APEX <span className="text-subtle font-normal">/ HL</span></span>
           </div>
-          <h1 className="text-2xl font-bold mb-2">
-            {mode === 'login' ? 'Welcome back' : 'Create your account'}
-          </h1>
-          <p className="text-muted text-sm">
-            {mode === 'login' ? 'Sign in to your APEX dashboard' : 'Start paper trading free — no card needed'}
-          </p>
+          <h1 className="text-2xl font-bold mb-2">{mode === 'login' ? 'Welcome back' : 'Create your account'}</h1>
+          <p className="text-muted text-sm">{mode === 'login' ? 'Sign in to your APEX dashboard' : 'Start paper trading free — no card needed'}</p>
         </div>
         <div className="card">
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -74,18 +63,14 @@ export default function LoginPage() {
             </button>
           </form>
           <div className="mt-6 pt-5 border-t border-white/[0.06] text-center">
-            <span className="text-muted text-sm">
-              {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
-            </span>
+            <span className="text-muted text-sm">{mode === 'login' ? "Don't have an account? " : 'Already have an account? '}</span>
             <button onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError('') }}
               className="text-green text-sm font-medium hover:underline">
               {mode === 'login' ? 'Sign up free' : 'Sign in'}
             </button>
           </div>
         </div>
-        <p className="text-center text-xs text-subtle mt-6">
-          Non-custodial · Your funds always stay in your wallet
-        </p>
+        <p className="text-center text-xs text-subtle mt-6">Non-custodial · Your funds always stay in your wallet</p>
       </div>
     </div>
   )
