@@ -20,21 +20,8 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-const { data: { session } } = await supabase.auth.getSession()
-const user = session?.user ?? null
-  const { pathname } = request.nextUrl
-
-  if (!user && ['/dashboard', '/settings'].some(r => pathname.startsWith(r))) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/login'
-    return NextResponse.redirect(url)
-  }
-
-  if (user && pathname === '/login') {
-    const url = request.nextUrl.clone()
-    url.pathname = '/dashboard'
-    return NextResponse.redirect(url)
-  }
+  // Refresh session if expired - required for Server Components
+  await supabase.auth.getUser()
 
   return response
 }

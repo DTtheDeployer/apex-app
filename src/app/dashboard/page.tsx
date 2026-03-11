@@ -1,35 +1,40 @@
-export const dynamic = 'force-dynamic'
-// src/app/dashboard/page.tsx
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
-import DashboardClient from '@/components/dashboard/DashboardClient'
+'use client'
+import { useEffect, useState } from 'react'
+import { createBrowserClient } from '@supabase/ssr'
+import { useRouter } from 'next/navigation'
 
-export default async function DashboardPage() {
-  const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+export default function DashboardPage() {
+  const [user, setUser] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const router = useRouter()
 
-  // Fetch everything in parallel
-  const [profileRes, configRes, tradesRes, heartbeatRes, equityRes, statsRes] = await Promise.all([
-    supabase.from('profiles').select('*').eq('id', user.id).single(),
-    supabase.from('bot_configs').select('*').eq('user_id', user.id).single(),
-    supabase.from('trades').select('*').eq('user_id', user.id)
-      .order('created_at', { ascending: false }).limit(20),
-    supabase.from('bot_heartbeats').select('*').eq('user_id', user.id)
-      .order('created_at', { ascending: false }).limit(1).single(),
-    supabase.from('equity_snapshots').select('equity, snapshot_at').eq('user_id', user.id)
-      .order('snapshot_at', { ascending: false }).limit(168), // 7 days hourly
-    supabase.from('user_stats').select('*').eq('user_id', user.id).single(),
-  ])
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) {
+        router.replace('/login')
+      } else {
+        setUser(user)
+        setLoading(false)
+      }
+    })
+  }, [])
+
+  if (loading) return (
+    <div style={{ minHeight: '100vh', background: '#0A1628', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#00A896', fontSize: '18px' }}>
+      Loading...
+    </div>
+  )
 
   return (
-    <DashboardClient
-      profile={profileRes.data}
-      config={configRes.data}
-      trades={tradesRes.data ?? []}
-      heartbeat={heartbeatRes.data}
-      equityHistory={(equityRes.data ?? []).reverse()}
-      stats={statsRes.data}
-    />
+    <div style={{ minHeight: '100vh', background: '#0A1628', color: '#E8EEF4', padding: '40px' }}>
+      <h1 style={{ color: '#00A896', fontSize: '28px', marginBottom: '16px' }}>APEX Dashboard</h1>
+      <p style={{ color: '#8899aa' }}>Logged in as: {user?.email}</p>
+      <p style={{ color: '#8899aa', marginTop: '8px' }}>Dashboard coming soon...</p>
+    </div>
   )
 }
