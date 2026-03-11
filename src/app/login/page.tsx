@@ -1,6 +1,5 @@
 'use client'
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 
 export default function LoginPage() {
   const [email, setEmail]       = useState('')
@@ -8,19 +7,26 @@ export default function LoginPage() {
   const [mode, setMode]         = useState<'login' | 'signup'>('login')
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState('')
-  const supabase = createClient()
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     setError('')
-    if (mode === 'login') {
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) { setError(error.message); setLoading(false); return }
-    } else {
-      const { error } = await supabase.auth.signUp({ email, password })
-      if (error) { setError(error.message); setLoading(false); return }
+
+    const endpoint = mode === 'login' ? '/api/auth/login' : '/api/auth/signup'
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    })
+
+    if (!res.ok) {
+      const data = await res.json()
+      setError(data.error || 'Something went wrong')
+      setLoading(false)
+      return
     }
+
     window.location.href = '/dashboard'
   }
 
