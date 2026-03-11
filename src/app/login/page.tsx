@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 export default function LoginPage() {
-  const supabase = createClient()
   const router = useRouter()
+  const supabase = createClient()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -18,14 +18,10 @@ export default function LoginPage() {
       setLoading(true)
       setError('')
 
-      console.log('LOGIN_START', { email })
-
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
-
-      console.log('LOGIN_RESULT', { data, error })
 
       if (error) {
         setError(error.message)
@@ -33,11 +29,11 @@ export default function LoginPage() {
         return
       }
 
-      console.log('LOGIN_SUCCESS_REDIRECTING')
+      await supabase.auth.getSession()
+
       router.push('/dashboard')
       router.refresh()
     } catch (err: any) {
-      console.error('LOGIN_EXCEPTION', err)
       setError(err?.message || 'Unexpected login error')
       setLoading(false)
     }
@@ -79,7 +75,6 @@ export default function LoginPage() {
               color: '#ff4444',
               marginBottom: '16px',
               fontSize: '14px',
-              whiteSpace: 'pre-wrap',
             }}
           >
             {error}
