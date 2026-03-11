@@ -2,12 +2,10 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { login } from './actions'
 
 export default function LoginPage() {
   const router = useRouter()
-  const supabase = createClient()
-
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -18,20 +16,18 @@ export default function LoginPage() {
       setLoading(true)
       setError('')
 
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
+      const formData = new FormData()
+      formData.set('email', email)
+      formData.set('password', password)
 
-      if (error) {
-        setError(error.message)
+      const result = await login(formData)
+
+      if (result?.error) {
+        setError(result.error)
         setLoading(false)
         return
       }
 
-      await supabase.auth.getSession()
-
-      router.push('/dashboard')
       router.refresh()
     } catch (err: any) {
       setError(err?.message || 'Unexpected login error')
