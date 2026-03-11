@@ -2,16 +2,17 @@
 import { useState } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 
+// Client created ONCE at module level - not inside component
+const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
+
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
 
   async function handleLogin() {
     setLoading(true)
@@ -21,7 +22,6 @@ export default function LoginPage() {
       setError(error.message)
       setLoading(false)
     } else {
-      // Hard redirect so middleware sees the new session cookie
       window.location.href = '/dashboard'
     }
   }
