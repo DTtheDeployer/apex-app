@@ -7,28 +7,40 @@ import { createClient } from '@/lib/supabase/client'
 export default function LoginPage() {
   const supabase = createClient()
   const router = useRouter()
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
   async function handleLogin() {
-    setLoading(true)
-    setError('')
+    try {
+      setLoading(true)
+      setError('')
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
+      console.log('LOGIN_START', { email })
 
-    if (error) {
-      setError(error.message)
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+
+      console.log('LOGIN_RESULT', { data, error })
+
+      if (error) {
+        setError(error.message)
+        setLoading(false)
+        return
+      }
+
+      console.log('LOGIN_SUCCESS_REDIRECTING')
+      router.push('/dashboard')
+      router.refresh()
+    } catch (err: any) {
+      console.error('LOGIN_EXCEPTION', err)
+      setError(err?.message || 'Unexpected login error')
       setLoading(false)
-      return
     }
-
-    router.replace('/dashboard')
-    router.refresh()
   }
 
   return (
@@ -67,6 +79,7 @@ export default function LoginPage() {
               color: '#ff4444',
               marginBottom: '16px',
               fontSize: '14px',
+              whiteSpace: 'pre-wrap',
             }}
           >
             {error}
@@ -96,7 +109,9 @@ export default function LoginPage() {
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleLogin()
+          }}
           style={{
             width: '100%',
             padding: '12px',
@@ -111,6 +126,7 @@ export default function LoginPage() {
         />
 
         <button
+          type="button"
           onClick={handleLogin}
           disabled={loading}
           style={{
