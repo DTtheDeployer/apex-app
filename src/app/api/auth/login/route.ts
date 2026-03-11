@@ -14,7 +14,6 @@ export async function POST(request: Request) {
       cookies: {
         getAll() { return cookieStore.getAll() },
         setAll(incoming) {
-          // Don't touch cookieStore - capture cookies to set on the response
           incoming.forEach(c => cookiesToSet.push(c))
         },
       },
