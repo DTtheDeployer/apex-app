@@ -1,63 +1,42 @@
-import { redirect } from 'next/navigation'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
-
 export const dynamic = 'force-dynamic'
 
+import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
+import DashboardClient from '@/components/dashboard/DashboardClient'
+
 export default async function DashboardPage() {
-  const cookieStore = await cookies()
+  const supabase = createClient()
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll()
-        },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) => {
-              cookieStore.set(name, value, options)
-            })
-          } catch {}
-        },
-      },
-    }
-  )
+  const { data: { user }, error } = await supabase.auth.getUser()
+  if (error || !user) redirect('/login')
 
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser()
-
-  if (error || !user) {
-    redirect('/login')
-  }
+  const [
+    { data: profile },
+    { data: config },
+    { data: trades },
+    { data: heartbeat },
+    { data: equityHistory },
+    { data: stats },
+  ] = await Promise.all([
+    supabase.from('profiles').select('*').eq('id', user.id).single(),
+    supabase.from('bot_configs').select('*').eq('user_id', user.id).single(),
+    supabase.from('trades').select('*').eq('user_id', user.id)
+      .order('created_at', { ascending: false }).limit(10),
+    supabase.from('bot_heartbeats').select('*').eq('user_id', user.id)
+      .order('created_at', { ascending: false }).limit(1).single(),
+    supabase.from('equity_snapshots').select('*').eq('user_id', user.id)
+      .order('snapshot_at', { ascending: true }).limit(90),
+    supabase.from('user_stats').select('*').eq('user_id', user.id).single(),
+  ])
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: '#0A1628',
-        color: '#E8EEF4',
-        padding: '40px',
-      }}
-    >
-      <h1
-        style={{
-          color: '#00A896',
-          fontSize: '28px',
-          marginBottom: '16px',
-        }}
-      >
-        APEX Dashboard
-      </h1>
-
-      <p style={{ color: '#8899aa' }}>Logged in as: {user.email}</p>
-      <p style={{ color: '#8899aa', marginTop: '8px' }}>
-        Dashboard coming soon...
-      </p>
-    </div>
+    <DashboardClient
+      profile={profile}
+      config={config}
+      trades={trades ?? []}
+      heartbeat={heartbeat}
+      equityHistory={equityHistory ?? []}
+      stats={stats}
+    />
   )
 }

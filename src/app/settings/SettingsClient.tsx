@@ -1,14 +1,15 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { saveSettings } from './actions'
 import { Shield, Cpu, Bell, Save, Eye, EyeOff } from 'lucide-react'
 import type { BotConfig } from '@/types'
 
 const HL_SYMBOLS = ['BTC','ETH','SOL','AVAX','DOGE','ARB','OP','LINK','MATIC','WIF']
 
 export default function SettingsClient() {
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
   const [config, setConfig] = useState<Partial<BotConfig>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -43,30 +44,30 @@ export default function SettingsClient() {
     setError('')
     setSaved(false)
 
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('Not authenticated')
+    const { error: saveError } = await saveSettings(
+      {
+        hl_wallet_address:   config.hl_wallet_address ?? null,
+        symbols:             config.symbols ?? ['BTC', 'ETH'],
+        leverage:            config.leverage ?? 3,
+        max_position_pct:    config.max_position_pct ?? 0.1,
+        max_daily_loss_pct:  config.max_daily_loss_pct ?? 0.05,
+        max_positions:       config.max_positions ?? 4,
+        testnet:             config.testnet ?? true,
+        discord_webhook_url: config.discord_webhook_url ?? null,
+        telegram_bot_token:  config.telegram_bot_token ?? null,
+        telegram_chat_id:    config.telegram_chat_id ?? null,
+        email_alerts:        config.email_alerts ?? true,
+        bot_enabled:         config.bot_enabled ?? false,
+      },
+      privateKey
+    )
 
-      const update: any = {
-        ...config,
-        updated_at: new Date().toISOString(),
-      }
-
-      if (privateKey) {
-        update.hl_private_key_enc = privateKey
-      }
-
-      const { error } = await supabase
-        .from('bot_configs')
-        .update(update)
-        .eq('user_id', user.id)
-
-      if (error) throw error
-
+    if (saveError) {
+      setError(saveError)
+    } else {
+      setPrivateKey('')
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
-    } catch (e: any) {
-      setError(e.message)
     }
 
     setSaving(false)
@@ -117,7 +118,7 @@ export default function SettingsClient() {
           <a
             href="https://app.hyperliquid.xyz/API"
             target="_blank"
-            rel="noopener"
+            rel="noopener noreferrer"
             className="text-green hover:underline"
           >
             app.hyperliquid.xyz/API
@@ -153,7 +154,7 @@ export default function SettingsClient() {
               </button>
             </div>
             <p className="text-xs text-subtle mt-1.5">
-              Leave blank to keep existing key. The API sub-wallet cannot withdraw funds.
+              Leave blank to keep existing key. Stored AES-256-GCM encrypted server-side.
             </p>
           </div>
           <div className="flex items-center gap-3">

@@ -119,7 +119,7 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
         <StatCard
           label="Total Trades"
           value={String(totalTrades)}
-          sub={config?.paper ? 'Paper mode' : 'Live'}
+          sub={config?.testnet ? 'Testnet mode' : 'Live'}
           icon={Activity}
           iconColor="text-muted"
         />

@@ -173,7 +173,11 @@ create trigger profiles_updated_at    before update on public.profiles    for ea
 create trigger bot_configs_updated_at before update on public.bot_configs  for each row execute function public.set_updated_at();
 
 -- ── USEFUL VIEWS ─────────────────────────────────────────────
-create or replace view public.user_stats as
+-- Note: views inherit RLS from underlying tables, but we also add
+-- a policy via a security_invoker view so each user sees only their own row.
+create or replace view public.user_stats
+  with (security_invoker = true)
+as
 select
   t.user_id,
   count(*) filter (where t.closed_at is not null)                            as total_trades,

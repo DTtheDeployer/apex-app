@@ -5,7 +5,7 @@ import SettingsClient from './SettingsClient'
 export const dynamic = 'force-dynamic'
 
 export default async function SettingsPage() {
-  const supabase = await createClient()
+  const supabase = createClient()
 
   const {
     data: { user },
