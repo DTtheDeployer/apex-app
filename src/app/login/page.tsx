@@ -28,7 +28,7 @@ export default function LoginPage() {
         return
       }
 
-      router.refresh()
+      router.push('/dashboard')
     } catch (err: any) {
       setError(err?.message || 'Unexpected login error')
       setLoading(false)
