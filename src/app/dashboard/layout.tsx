@@ -1,14 +1,14 @@
 import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
 import Sidebar from '@/components/dashboard/Sidebar'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  
+  // Hardcoded user ID for personal dev
+  const userId = 'a040d19d-f40e-44f7-9b90-dead9d9bcfeb'
 
   const { data: profile } = await supabase
-    .from('profiles').select('*').eq('id', user.id).single()
+    .from('profiles').select('*').eq('id', userId).single()
 
   return (
     <div className="flex h-screen bg-bg overflow-hidden">
