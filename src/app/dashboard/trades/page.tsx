@@ -1,16 +1,14 @@
 export const dynamic = 'force-dynamic'
-// src/app/dashboard/trades/page.tsx
+
 import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
 
 export default async function TradesPage() {
   const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  const userId = 'a040d19d-f40e-44f7-9b90-dead9d9bcfeb'
 
   const { data: trades } = await supabase
     .from('trades').select('*')
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(200)
 
@@ -26,7 +24,6 @@ export default async function TradesPage() {
         <p className="text-muted text-sm mt-0.5">{trades?.length ?? 0} trades total</p>
       </div>
 
-      {/* Summary strip */}
       <div className="grid grid-cols-3 gap-4 mb-6">
         {[
           { label: 'Total P&L', value: `${totalPnl >= 0 ? '+' : ''}$${Math.abs(totalPnl).toFixed(2)}`, color: totalPnl >= 0 ? 'text-green' : 'text-red' },
@@ -40,7 +37,6 @@ export default async function TradesPage() {
         ))}
       </div>
 
-      {/* Table */}
       <div className="card overflow-hidden p-0">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -62,34 +58,4 @@ export default async function TradesPage() {
                   </td>
                   <td className="px-4 py-3 font-mono text-xs text-muted">${t.entry_price?.toLocaleString()}</td>
                   <td className="px-4 py-3 font-mono text-xs text-muted">
-                    {t.exit_price ? `$${t.exit_price.toLocaleString()}` : <span className="text-subtle">—</span>}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs">
-                    {t.pnl != null
-                      ? <span className={t.pnl >= 0 ? 'text-green' : 'text-red'}>{t.pnl >= 0 ? '+' : ''}${Math.abs(t.pnl).toFixed(2)}</span>
-                      : <span className="badge-blue">Open</span>}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-muted">{t.regime?.replace('_',' ') ?? '—'}</td>
-                  <td className="px-4 py-3">
-                    <span className={`text-xs ${t.macro_context === 'NONE' ? 'text-subtle' : t.macro_context === 'FREEZE' ? 'text-red' : t.macro_context === 'CAUTION' ? 'text-gold' : 'text-green'}`}>
-                      {t.macro_context ?? '—'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {t.close_reason
-                      ? <span className={t.close_reason === 'TP' ? 'badge-green' : t.close_reason === 'SL' ? 'badge-red' : 'badge-subtle'}>{t.close_reason}</span>
-                      : <span className="text-subtle text-xs">—</span>}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-subtle">{t.held_minutes ? `${t.held_minutes}m` : '—'}</td>
-                  <td className="px-4 py-3 text-xs text-subtle">
-                    {new Date(t.created_at).toLocaleDateString('en-GB', { day:'numeric', month:'short' })}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  )
-}
+                    {t.exit_price ? `$${t.exit_price.toLocaleString()}
