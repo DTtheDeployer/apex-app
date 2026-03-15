@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { AreaChart, Area, ResponsiveContainer } from 'recharts'
-import { RefreshCw, Zap, Clock, TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import { RefreshCw, Zap, Clock, TrendingUp, TrendingDown, Minus, Settings, Shield, AlertTriangle, X } from 'lucide-react'
 import type { Profile, BotConfig, Trade, BotHeartbeat, EquitySnapshot, UserStats } from '@/types'
 
 interface SignalScan {
@@ -11,7 +11,6 @@ interface SignalScan {
   strength: number
   direction: 'LONG' | 'SHORT' | 'NEUTRAL'
   trigger: string
-  regime?: string
   rsi?: number
 }
 
@@ -23,6 +22,18 @@ interface Props {
   equityHistory: EquitySnapshot[]
   stats: UserStats | null
 }
+
+const STRATEGIES = [
+  { id: 'conservative', name: 'Conservative', icon: Shield, color: 'text-blue', bg: 'bg-blue/10 border-blue/30', desc: 'Stricter entry criteria, fewer trades' },
+  { id: 'balanced', name: 'Balanced', icon: TrendingUp, color: 'text-green', bg: 'bg-green/10 border-green/30', desc: 'Mix of momentum & pullback' },
+  { id: 'aggressive', name: 'Aggressive', icon: Zap, color: 'text-gold', bg: 'bg-gold/10 border-gold/30', desc: 'Looser criteria, more trades' },
+]
+
+const RISK_LEVELS = [
+  { id: 'low', name: 'Low', pct: '2%' },
+  { id: 'medium', name: 'Medium', pct: '4%' },
+  { id: 'high', name: 'High', pct: '6%' },
+]
 
 function fmt(n: number | null | undefined) {
   if (n == null) return '—'
@@ -57,16 +68,21 @@ function getSignalBgColor(strength: number): string {
   return 'bg-white/5 border-white/10'
 }
 
-function getSignalTextColor(strength: number): string {
-  if (strength >= 70) return 'text-green'
-  if (strength >= 30) return 'text-yellow-500'
-  return 'text-muted'
-}
-
 export default function DashboardClient({ profile, config, trades, heartbeat, equityHistory, stats }: Props) {
   const router = useRouter()
   const [lastRefresh, setLastRefresh] = useState(new Date())
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+  
+  // Strategy settings
+  const [strategy, setStrategy] = useState((config as any)?.strategy_mode || 'balanced')
+  const [risk, setRisk] = useState((config as any)?.risk_level || 'medium')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  const initialStrategy = (config as any)?.strategy_mode || 'balanced'
+  const initialRisk = (config as any)?.risk_level || 'medium'
+  const hasChanges = strategy !== initialStrategy || risk !== initialRisk
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -83,6 +99,31 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
     router.refresh()
     setLastRefresh(new Date())
     setTimeout(() => setIsRefreshing(false), 500)
+  }
+
+  const handleSaveSettings = async () => {
+    setSaving(true)
+    try {
+      const res = await fetch('/api/bot/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: 'a040d19d-f40e-44f7-9b90-dead9d9bcfeb',
+          strategy_mode: strategy,
+          risk_level: risk,
+        }),
+      })
+      if (res.ok) {
+        setSaved(true)
+        setTimeout(() => {
+          setSaved(false)
+          setShowSettings(false)
+          router.refresh()
+        }, 1500)
+      }
+    } finally {
+      setSaving(false)
+    }
   }
 
   const botOnline = heartbeat
@@ -103,8 +144,11 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
   const closedTrades = trades.filter(t => t.closed_at)
   const unrealizedPnl = openTrades.reduce((sum, t) => sum + ((t as any).unrealized_pnl ?? 0), 0)
 
-  // Signal radar from heartbeat
   const signalRadar: SignalScan[] = (heartbeat as any)?.signal_radar ?? []
+  
+  // Get current strategy display info
+  const currentStrat = STRATEGIES.find(s => s.id === strategy) || STRATEGIES[1]
+  const currentRisk = RISK_LEVELS.find(r => r.id === risk) || RISK_LEVELS[1]
 
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto">
@@ -118,10 +162,111 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
             {botOnline ? 'Live' : 'Offline'}
           </div>
         </div>
-        <button onClick={handleManualRefresh} className="p-1.5 text-muted hover:text-white">
-          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={() => setShowSettings(true)} 
+            className="p-1.5 text-muted hover:text-white rounded-lg hover:bg-white/5"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+          <button onClick={handleManualRefresh} className="p-1.5 text-muted hover:text-white">
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      </div>
+
+      {/* Current Strategy Badge */}
+      <div className="flex items-center gap-2 mb-4">
+        <button 
+          onClick={() => setShowSettings(true)}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs ${currentStrat.bg}`}
+        >
+          <currentStrat.icon className={`w-3 h-3 ${currentStrat.color}`} />
+          <span className={currentStrat.color}>{currentStrat.name}</span>
+          <span className="text-muted">•</span>
+          <span>{currentRisk.pct} risk</span>
         </button>
       </div>
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setShowSettings(false)} />
+          <div className="relative bg-surface border border-white/10 rounded-xl p-4 w-full max-w-md">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold">Bot Settings</h2>
+              <button onClick={() => setShowSettings(false)} className="p-1 text-muted hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Strategy Mode */}
+            <div className="mb-4">
+              <p className="text-xs text-muted uppercase tracking-wider font-medium mb-2">Strategy Mode</p>
+              <div className="space-y-2">
+                {STRATEGIES.map((s) => {
+                  const Icon = s.icon
+                  const isActive = strategy === s.id
+                  return (
+                    <button
+                      key={s.id}
+                      onClick={() => setStrategy(s.id)}
+                      className={`w-full p-3 rounded-lg border text-left transition-all ${
+                        isActive ? s.bg : 'bg-white/5 border-white/10 hover:border-white/20'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Icon className={`w-4 h-4 ${isActive ? s.color : 'text-muted'}`} />
+                        <span className={`text-sm font-medium ${isActive ? s.color : ''}`}>{s.name}</span>
+                      </div>
+                      <p className="text-[10px] text-muted mt-1 ml-6">{s.desc}</p>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Risk Level */}
+            <div className="mb-4">
+              <p className="text-xs text-muted uppercase tracking-wider font-medium mb-2">Risk per Trade</p>
+              <div className="grid grid-cols-3 gap-2">
+                {RISK_LEVELS.map((r) => {
+                  const isActive = risk === r.id
+                  return (
+                    <button
+                      key={r.id}
+                      onClick={() => setRisk(r.id)}
+                      className={`p-3 rounded-lg border text-center transition-all ${
+                        isActive ? 'bg-green/10 border-green/30' : 'bg-white/5 border-white/10 hover:border-white/20'
+                      }`}
+                    >
+                      <p className={`text-lg font-bold ${isActive ? 'text-green' : ''}`}>{r.pct}</p>
+                      <p className="text-[10px] text-muted">{r.name}</p>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Warning */}
+            {strategy === 'aggressive' && risk === 'high' && (
+              <div className="flex items-center gap-2 p-2 rounded-lg bg-red/10 border border-red/20 mb-4">
+                <AlertTriangle className="w-4 h-4 text-red flex-shrink-0" />
+                <p className="text-xs text-red">High risk! Potential for significant drawdowns.</p>
+              </div>
+            )}
+
+            {/* Save Button */}
+            <button
+              onClick={handleSaveSettings}
+              disabled={saving || !hasChanges}
+              className="w-full py-2 rounded-lg bg-green text-black font-medium text-sm hover:bg-green/90 disabled:opacity-50 transition-all"
+            >
+              {saving ? 'Saving...' : saved ? '✓ Saved!' : hasChanges ? 'Save Changes' : 'No Changes'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Quick Stats Row */}
       <div className="grid grid-cols-4 gap-2 mb-4">
@@ -143,9 +288,7 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
         </div>
       </div>
 
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {/* SIGNAL RADAR - Traffic Light System */}
-      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* Signal Radar */}
       <div className="bg-surface rounded-lg p-3 mb-4">
         <div className="flex items-center justify-between mb-3">
           <p className="text-[10px] text-muted uppercase font-medium">Signal Radar</p>
@@ -159,24 +302,14 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
         {signalRadar.length > 0 ? (
           <div className="grid grid-cols-5 gap-2">
             {signalRadar.map((scan) => (
-              <div
-                key={scan.symbol}
-                className={`rounded-lg border p-2 text-center transition-all ${getSignalBgColor(scan.strength)}`}
-              >
-                {/* Symbol */}
+              <div key={scan.symbol} className={`rounded-lg border p-2 text-center transition-all ${getSignalBgColor(scan.strength)}`}>
                 <p className="text-xs font-bold mb-1">{scan.symbol}</p>
-                
-                {/* Traffic light indicator */}
                 <div className="flex justify-center mb-1">
                   <div className={`w-3 h-3 rounded-full ${getSignalColor(scan.strength)} ${scan.strength >= 70 ? 'animate-pulse' : ''}`} />
                 </div>
-                
-                {/* Strength percentage */}
-                <p className={`text-sm font-bold ${getSignalTextColor(scan.strength)}`}>
+                <p className={`text-sm font-bold ${scan.strength >= 70 ? 'text-green' : scan.strength >= 30 ? 'text-yellow-500' : 'text-muted'}`}>
                   {scan.strength}%
                 </p>
-                
-                {/* Direction arrow */}
                 <div className="flex justify-center mt-1">
                   {scan.direction === 'LONG' ? (
                     <TrendingUp className="w-3 h-3 text-green" />
@@ -186,18 +319,11 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
                     <Minus className="w-3 h-3 text-muted" />
                   )}
                 </div>
-                
-                {/* RSI if available */}
-                {scan.rsi && (
-                  <p className="text-[9px] text-muted mt-1">RSI {scan.rsi}</p>
-                )}
               </div>
             ))}
           </div>
         ) : (
-          <div className="text-center py-4 text-xs text-muted">
-            Signal data will appear when bot is running
-          </div>
+          <div className="text-center py-4 text-xs text-muted">Signal data appears when bot runs</div>
         )}
       </div>
 
@@ -206,14 +332,10 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
         <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
           <div className="flex items-center gap-2">
             {openTrades.length > 0 && <span className="w-2 h-2 rounded-full bg-green animate-pulse" />}
-            <span className="text-xs font-medium">
-              {openTrades.length > 0 ? `${openTrades.length} Open` : 'No Positions'}
-            </span>
+            <span className="text-xs font-medium">{openTrades.length > 0 ? `${openTrades.length} Open` : 'No Positions'}</span>
           </div>
           {openTrades.length > 0 && (
-            <span className={`text-xs font-bold ${unrealizedPnl >= 0 ? 'text-green' : 'text-red'}`}>
-              {fmtSigned(unrealizedPnl)}
-            </span>
+            <span className={`text-xs font-bold ${unrealizedPnl >= 0 ? 'text-green' : 'text-red'}`}>{fmtSigned(unrealizedPnl)}</span>
           )}
         </div>
 
@@ -221,7 +343,6 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
           <div className="divide-y divide-white/5">
             {openTrades.map(t => {
               const pnl = (t as any).unrealized_pnl ?? 0
-              const pnlPct = (t as any).unrealized_pnl_pct ?? 0
               const current = (t as any).current_price
               const isProfit = pnl >= 0
 
@@ -229,9 +350,7 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
                 <div key={t.id} className="px-3 py-2">
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2">
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${t.side === 'LONG' ? 'bg-green/20 text-green' : 'bg-red/20 text-red'}`}>
-                        {t.side}
-                      </span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${t.side === 'LONG' ? 'bg-green/20 text-green' : 'bg-red/20 text-red'}`}>{t.side}</span>
                       <span className="text-sm font-medium">{t.symbol}</span>
                       <span className="text-[10px] text-muted">{t.leverage}x</span>
                     </div>
@@ -242,32 +361,10 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="text-xs text-muted">
-                      <span>${t.entry_price?.toLocaleString()}</span>
-                      <span className="mx-1">→</span>
-                      <span className={current ? (isProfit ? 'text-green' : 'text-red') : ''}>
-                        {current ? `$${current.toLocaleString()}` : '—'}
-                      </span>
+                      ${t.entry_price?.toLocaleString()} → {current ? <span className={isProfit ? 'text-green' : 'text-red'}>${current.toLocaleString()}</span> : '—'}
                     </div>
-                    <div className={`text-sm font-bold ${isProfit ? 'text-green' : 'text-red'}`}>
-                      {fmtSigned(pnl)}
-                      <span className="text-[10px] ml-1 opacity-70">{pnlPct ? `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%` : ''}</span>
-                    </div>
+                    <div className={`text-sm font-bold ${isProfit ? 'text-green' : 'text-red'}`}>{fmtSigned(pnl)}</div>
                   </div>
-                  {/* Compact SL/TP */}
-                  {(t.stop_loss || t.take_profit) && (
-                    <div className="flex items-center justify-between mt-1 text-[10px]">
-                      <span className="text-red">SL ${t.stop_loss?.toFixed(2)}</span>
-                      <div className="flex-1 mx-2 h-1 bg-white/10 rounded-full relative">
-                        {current && t.stop_loss && t.take_profit && (
-                          <div
-                            className={`absolute top-0 h-1 w-1 rounded-full ${isProfit ? 'bg-green' : 'bg-red'}`}
-                            style={{ left: `${Math.min(100, Math.max(0, ((current - t.stop_loss) / (t.take_profit - t.stop_loss)) * 100))}%` }}
-                          />
-                        )}
-                      </div>
-                      <span className="text-green">TP ${t.take_profit?.toFixed(2)}</span>
-                    </div>
-                  )}
                 </div>
               )
             })}
@@ -299,7 +396,7 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
       )}
 
       {/* Market + Stats */}
-      <div className="grid grid-cols-2 gap-3 mb-4">
+      <div className="grid grid-cols-2 gap-3">
         <div className="bg-surface rounded-lg p-3">
           <p className="text-[10px] text-muted uppercase mb-2">Market</p>
           <div className="space-y-1">
@@ -315,54 +412,22 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
               <span className="text-muted">Macro</span>
               <span>{heartbeat?.macro_context ?? 'NONE'}</span>
             </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-muted">Cycles</span>
-              <span>{heartbeat?.cycles_today ?? 0}</span>
-            </div>
           </div>
         </div>
         <div className="bg-surface rounded-lg p-3">
           <p className="text-[10px] text-muted uppercase mb-2">Stats</p>
           <div className="space-y-1">
             <div className="flex justify-between text-xs">
-              <span className="text-muted">Total trades</span>
+              <span className="text-muted">Trades</span>
               <span>{totalTrades}</span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-muted">Wins</span>
-              <span className="text-green">{stats?.wins ?? 0}</span>
-            </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-muted">Losses</span>
-              <span className="text-red">{stats?.losses ?? 0}</span>
+              <span className="text-muted">W/L</span>
+              <span><span className="text-green">{stats?.wins ?? 0}</span> / <span className="text-red">{stats?.losses ?? 0}</span></span>
             </div>
           </div>
         </div>
       </div>
-
-      {/* Closed Trades */}
-      {closedTrades.length > 0 && (
-        <div className="bg-surface rounded-lg p-3">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[10px] text-muted uppercase">Recent Closed</p>
-            <a href="/dashboard/trades" className="text-[10px] text-green">View all</a>
-          </div>
-          <div className="space-y-1">
-            {closedTrades.slice(0, 3).map(t => (
-              <div key={t.id} className="flex items-center justify-between py-1">
-                <div className="flex items-center gap-2">
-                  <span className={`text-[10px] font-bold ${t.side === 'LONG' ? 'text-green' : 'text-red'}`}>{t.side}</span>
-                  <span className="text-xs">{t.symbol}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={`text-xs font-bold ${(t.pnl ?? 0) >= 0 ? 'text-green' : 'text-red'}`}>{fmtSigned(t.pnl)}</span>
-                  <span className={`text-[10px] px-1 rounded ${(t.pnl ?? 0) >= 0 ? 'bg-green/10 text-green' : 'bg-red/10 text-red'}`}>{t.close_reason}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   )
 }
