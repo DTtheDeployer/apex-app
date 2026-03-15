@@ -106,7 +106,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Missing user_id' }, { status: 400 })
     }
 
-    const updateData: any = {}
+    const updateData: any = { user_id }
     if (typeof enabled === 'boolean') {
       updateData.enabled = enabled
     }
@@ -114,14 +114,14 @@ export async function PATCH(request: NextRequest) {
       updateData.strategy = strategy
     }
 
-    if (Object.keys(updateData).length === 0) {
+    if (Object.keys(updateData).length <= 1) {
       return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
     }
 
+    // Use upsert instead of update
     const { error } = await supabase
       .from('bot_settings')
-      .update(updateData)
-      .eq('user_id', user_id)
+      .upsert(updateData, { onConflict: 'user_id' })
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 })
