@@ -140,9 +140,28 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
   const winRate = stats?.win_rate_pct ?? 0
   const totalTrades = stats?.total_trades ?? 0
 
-  const openTrades = trades.filter(t => !t.closed_at)
+  // Get LIVE positions from heartbeat (not from trades table)
+  const livePositions: any[] = (heartbeat as any)?.positions ?? []
+  const openTrades = livePositions.map(p => ({
+    id: p.id,
+    symbol: p.symbol,
+    side: p.side,
+    entry_price: p.entry_price,
+    current_price: p.current_price,
+    stop_loss: p.stop_loss,
+    take_profit: p.take_profit,
+    leverage: p.leverage,
+    size: p.size,
+    unrealized_pnl: p.unrealized_pnl,
+    pnl_pct: p.pnl_pct,
+    strategy: p.strategy,
+    explanation: p.explanation,
+    regime: p.regime,
+    created_at: new Date().toISOString(), // placeholder
+  }))
+  
   const closedTrades = trades.filter(t => t.closed_at)
-  const unrealizedPnl = openTrades.reduce((sum, t) => sum + ((t as any).unrealized_pnl ?? 0), 0)
+  const unrealizedPnl = livePositions.reduce((sum, p) => sum + (p.unrealized_pnl ?? 0), 0)
 
   const signalRadar: SignalScan[] = (heartbeat as any)?.signal_radar ?? []
   
