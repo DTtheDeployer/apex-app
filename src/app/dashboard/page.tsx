@@ -1,10 +1,10 @@
 export const dynamic = 'force-dynamic'
 
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/server'
 import DashboardClient from '@/components/dashboard/DashboardClient'
 
 export default async function DashboardPage() {
-  const supabase = createClient()
+  const supabase = createAdminClient()
 
   // For personal dev - use a hardcoded user ID or fetch without auth
   // You can get your user ID from Supabase dashboard > Authentication > Users

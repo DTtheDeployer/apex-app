@@ -18,6 +18,8 @@ Usage:
 
 Author: APEX / Built for Dan
 """
+from dotenv import load_dotenv
+load_dotenv()
 
 import os
 import time
