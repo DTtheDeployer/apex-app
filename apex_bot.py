@@ -1031,7 +1031,8 @@ class HyperliquidClient:
                 "pnl_pct": round(pnl_pct, 2), "leverage": p.leverage,
                 "stop_loss": p.stop_loss, "take_profit": p.take_profit,
                 "strategy": p.strategy, "explanation": p.explanation,
-                "regime": p.regime
+                "regime": p.regime 
+                "opened_at": p.entry_time.isoformat() if p.entry_time else None,
             })
         return result
     

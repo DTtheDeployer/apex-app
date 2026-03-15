@@ -275,7 +275,7 @@ export default function DashboardClient({
     strategy: p.strategy,
     explanation: p.explanation,
     regime: p.regime,
-    created_at: new Date().toISOString(),
+    created_at: p.opened_at || new Date().toISOString(),
   }))
   
   const closedTrades = trades.filter(t => t.closed_at)
