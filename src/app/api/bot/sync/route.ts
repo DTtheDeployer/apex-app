@@ -137,6 +137,8 @@ async function handleTradeSignal(userId: string, data: any) {
     net_score,
     regime,
     macro_context,
+    strategy,      // ✅ Added
+    explanation,   // ✅ Added
     paper,
     timestamp,
   } = data
@@ -157,6 +159,8 @@ async function handleTradeSignal(userId: string, data: any) {
       net_score,
       regime,
       macro_context,
+      strategy,      // ✅ Added - save strategy on open
+      explanation,   // ✅ Added - save explanation on open
       paper,
       current_price: entry_price,
       unrealized_pnl: 0,
@@ -180,22 +184,32 @@ async function handleTradeClose(userId: string, data: any) {
     pnl_pct,
     close_reason,
     held_minutes,
+    strategy,      // ✅ Added - extract strategy from close data
+    explanation,   // ✅ Added - extract explanation (close reason text)
     timestamp,
   } = data
 
+  // Build update object - only include strategy if provided
+  const updateData: any = {
+    exit_price,
+    pnl,
+    pnl_pct,
+    close_reason,
+    held_minutes,
+    unrealized_pnl: null,
+    unrealized_pnl_pct: null,
+    current_price: exit_price,
+    closed_at: timestamp || new Date().toISOString(),
+  }
+
+  // Only update strategy if it was provided (don't overwrite with null)
+  if (strategy) {
+    updateData.strategy = strategy
+  }
+
   const { error } = await supabase
     .from('trades')
-    .update({
-      exit_price,
-      pnl,
-      pnl_pct,
-      close_reason,
-      held_minutes,
-      unrealized_pnl: null,
-      unrealized_pnl_pct: null,
-      current_price: exit_price,
-      closed_at: timestamp || new Date().toISOString(),
-    })
+    .update(updateData)
     .eq('id', signal_id)
 
   if (error) {
@@ -203,9 +217,10 @@ async function handleTradeClose(userId: string, data: any) {
     return NextResponse.json({ error: 'Failed to close trade' }, { status: 500 })
   }
 
+  // Recalculate user stats
   const { data: trades } = await supabase
     .from('trades')
-    .select('pnl')
+    .select('pnl, strategy')
     .eq('user_id', userId)
     .not('closed_at', 'is', null)
 
