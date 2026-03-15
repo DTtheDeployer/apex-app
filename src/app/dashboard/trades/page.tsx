@@ -1,7 +1,39 @@
 export const dynamic = 'force-dynamic'
 
 import { createAdminClient } from '@/lib/supabase/server'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, TrendingUp, Target, Zap, Crosshair, Crown, Sparkles } from 'lucide-react'
+
+// Strategy definitions matching the dashboard
+const STRATEGIES = [
+  { id: 'apex_adaptive', name: 'APEX Adaptive', color: 'text-purple-400', bg: 'bg-purple-500/10 border-purple-500/30' },
+  { id: 'momentum_rider', name: 'Momentum Rider', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30' },
+  { id: 'dip_hunter', name: 'Dip Hunter', color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/30' },
+  { id: 'breakout_blitz', name: 'Breakout Blitz', color: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/30' },
+  { id: 'scalp_sniper', name: 'Scalp Sniper', color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/30' },
+  { id: 'swing_king', name: 'Swing King', color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/30' },
+]
+
+// Normalize strategy ID from various formats
+function normalizeStrategyId(strategy: string | undefined): string {
+  if (!strategy) return 'unknown'
+  const s = strategy.toLowerCase()
+  if (s.includes('momentum')) return 'momentum_rider'
+  if (s.includes('dip') || s.includes('mean')) return 'dip_hunter'
+  if (s.includes('breakout')) return 'breakout_blitz'
+  if (s.includes('scalp')) return 'scalp_sniper'
+  if (s.includes('swing')) return 'swing_king'
+  if (s.includes('apex') || s.includes('adaptive')) return 'apex_adaptive'
+  return s.replace(/_/g, ' ')
+}
+
+function getStrategyDisplay(strategy: string | undefined): { name: string; color: string; bg: string } {
+  const id = normalizeStrategyId(strategy)
+  const strat = STRATEGIES.find(s => s.id === id)
+  if (strat) {
+    return { name: strat.name, color: strat.color, bg: strat.bg }
+  }
+  return { name: strategy || 'Unknown', color: 'text-white/60', bg: 'bg-white/10 border-white/20' }
+}
 
 export default async function TradesPage() {
   const supabase = createAdminClient()
@@ -27,6 +59,18 @@ export default async function TradesPage() {
     ? Math.round(closedTrades.reduce((s: number, t: any) => s + (t.held_minutes ?? 0), 0) / closedTrades.length) 
     : 0
 
+  // Calculate stats by normalized strategy
+  const strategyStatsMap: Record<string, { trades: number; pnl: number; wins: number }> = {}
+  closedTrades.forEach((t: any) => {
+    const stratId = normalizeStrategyId(t.strategy)
+    if (!strategyStatsMap[stratId]) {
+      strategyStatsMap[stratId] = { trades: 0, pnl: 0, wins: 0 }
+    }
+    strategyStatsMap[stratId].trades++
+    strategyStatsMap[stratId].pnl += t.pnl ?? 0
+    if ((t.pnl ?? 0) > 0) strategyStatsMap[stratId].wins++
+  })
+
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto">
       <div className="mb-8">
@@ -39,7 +83,7 @@ export default async function TradesPage() {
         <div className="bg-surface rounded-xl p-4">
           <p className="text-xs text-muted uppercase tracking-wider font-medium mb-1">Total P&L</p>
           <p className={`text-2xl font-bold ${totalPnl >= 0 ? 'text-green' : 'text-red'}`}>
-            {totalPnl >= 0 ? '+' : ''}${Math.abs(totalPnl).toFixed(2)}
+            {totalPnl >= 0 ? '+' : '-'}${Math.abs(totalPnl).toFixed(2)}
           </p>
         </div>
         <div className="bg-surface rounded-xl p-4">
@@ -65,23 +109,21 @@ export default async function TradesPage() {
         </div>
       </div>
 
-      {/* Strategy Breakdown */}
+      {/* Strategy Breakdown - Using actual strategies */}
       <div className="bg-surface rounded-xl p-4 mb-6">
         <p className="text-xs text-muted uppercase tracking-wider font-medium mb-3">Performance by Strategy</p>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {['MOMENTUM', 'TREND_PULLBACK', 'MEAN_REVERSION', 'BREAKOUT'].map(strategy => {
-            const stratTrades = closedTrades.filter((t: any) => t.strategy === strategy)
-            const stratPnl = stratTrades.reduce((s: number, t: any) => s + (t.pnl ?? 0), 0)
-            const stratWins = stratTrades.filter((t: any) => (t.pnl ?? 0) > 0).length
-            const stratWinRate = stratTrades.length > 0 ? ((stratWins / stratTrades.length) * 100).toFixed(0) : '—'
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          {STRATEGIES.map(strategy => {
+            const stats = strategyStatsMap[strategy.id] || { trades: 0, pnl: 0, wins: 0 }
+            const winRate = stats.trades > 0 ? ((stats.wins / stats.trades) * 100).toFixed(0) : '—'
             
             return (
-              <div key={strategy} className="bg-white/5 rounded-lg p-3">
-                <p className="text-xs font-medium text-blue mb-1">{strategy.replace('_', ' ')}</p>
-                <p className={`text-sm font-bold ${stratPnl >= 0 ? 'text-green' : 'text-red'}`}>
-                  {stratPnl >= 0 ? '+' : ''}${Math.abs(stratPnl).toFixed(2)}
+              <div key={strategy.id} className={`rounded-lg p-3 border ${strategy.bg}`}>
+                <p className={`text-xs font-medium ${strategy.color} mb-1`}>{strategy.name}</p>
+                <p className={`text-sm font-bold ${stats.pnl >= 0 ? 'text-green' : 'text-red'}`}>
+                  {stats.pnl >= 0 ? '+' : '-'}${Math.abs(stats.pnl).toFixed(2)}
                 </p>
-                <p className="text-[10px] text-muted">{stratTrades.length} trades • {stratWinRate}% win</p>
+                <p className="text-[10px] text-muted">{stats.trades} trades • {winRate}{winRate !== '—' ? '%' : ''} win</p>
               </div>
             )
           })}
@@ -107,6 +149,8 @@ export default async function TradesPage() {
               const durationStr = duration >= 60 
                 ? `${Math.floor(duration / 60)}h ${duration % 60}m` 
                 : `${duration}m`
+              const stratDisplay = getStrategyDisplay(t.strategy)
+              const closedDate = new Date(t.closed_at)
               
               return (
                 <details key={t.id} className="group">
@@ -118,14 +162,18 @@ export default async function TradesPage() {
                         </span>
                         <span className="font-medium">{t.symbol}</span>
                         {t.strategy && (
-                          <span className="text-[10px] text-blue bg-blue/10 px-1.5 py-0.5 rounded">
-                            {t.strategy?.replace('_', ' ')}
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded border ${stratDisplay.bg} ${stratDisplay.color}`}>
+                            {stratDisplay.name}
                           </span>
                         )}
+                        {/* Timestamp */}
+                        <span className="text-[10px] text-muted hidden sm:inline">
+                          {closedDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} {closedDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
                       </div>
                       <div className="flex items-center gap-4">
                         <span className={`font-bold ${isWin ? 'text-green' : 'text-red'}`}>
-                          {isWin ? '+' : ''}${Math.abs(t.pnl ?? 0).toFixed(2)}
+                          {isWin ? '+' : '-'}${Math.abs(t.pnl ?? 0).toFixed(2)}
                         </span>
                         <span className={`text-xs px-1.5 py-0.5 rounded ${
                           t.close_reason === 'TP' ? 'bg-green/20 text-green' : 
@@ -154,8 +202,8 @@ export default async function TradesPage() {
                         <p>{durationStr}</p>
                       </div>
                       <div>
-                        <p className="text-muted">Date</p>
-                        <p>{new Date(t.closed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
+                        <p className="text-muted">Closed</p>
+                        <p>{closedDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
                       </div>
                     </div>
                     
