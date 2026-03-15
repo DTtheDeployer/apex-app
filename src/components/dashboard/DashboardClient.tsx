@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { AreaChart, Area, ResponsiveContainer } from 'recharts'
-import { RefreshCw, Zap, Clock, TrendingUp, TrendingDown, Minus, Settings, Shield, AlertTriangle, X, Info, ChevronDown, ChevronUp, Power, Target, Gauge, Crown, Crosshair, BarChart3 } from 'lucide-react'
+import { RefreshCw, Zap, Clock, TrendingUp, TrendingDown, Minus, Settings, AlertTriangle, X, Info, ChevronDown, ChevronUp, Power, Target, Crown, Crosshair, Trophy, BarChart3, ArrowRight, Sparkles } from 'lucide-react'
 import type { Profile, BotConfig, Trade, BotHeartbeat, EquitySnapshot, UserStats } from '@/types'
 
 interface SignalScan {
@@ -12,6 +12,13 @@ interface SignalScan {
   direction: 'LONG' | 'SHORT' | 'NEUTRAL'
   trigger: string
   rsi?: number
+}
+
+interface StrategyStats {
+  trades: number
+  wins: number
+  losses: number
+  pnl: number
 }
 
 interface Props {
@@ -23,15 +30,18 @@ interface Props {
   stats: UserStats | null
   botEnabled?: boolean
   currentStrategy?: string
+  strategyStats?: Record<string, StrategyStats>
 }
 
 const STRATEGIES = [
   { 
     id: 'apex_adaptive', 
     name: 'APEX Adaptive', 
-    icon: Zap, 
+    icon: Sparkles, 
     color: 'text-purple-400', 
     bg: 'bg-purple-500/10 border-purple-500/30',
+    gradient: 'from-purple-500/20 to-indigo-500/20',
+    glow: 'shadow-purple-500/20',
     desc: 'Adapts to market regime automatically',
     style: 'Hybrid',
     holdTime: 'Varies'
@@ -40,9 +50,11 @@ const STRATEGIES = [
     id: 'momentum_rider', 
     name: 'Momentum Rider', 
     icon: TrendingUp, 
-    color: 'text-green', 
-    bg: 'bg-green/10 border-green/30',
-    desc: 'Ride strong trends with RSI + MACD',
+    color: 'text-emerald-400', 
+    bg: 'bg-emerald-500/10 border-emerald-500/30',
+    gradient: 'from-emerald-500/20 to-green-500/20',
+    glow: 'shadow-emerald-500/20',
+    desc: 'Ride strong trends with RSI + MACD confirmation',
     style: 'Trend',
     holdTime: 'Hours-Days'
   },
@@ -50,9 +62,11 @@ const STRATEGIES = [
     id: 'dip_hunter', 
     name: 'Dip Hunter', 
     icon: Target, 
-    color: 'text-blue', 
-    bg: 'bg-blue/10 border-blue/30',
-    desc: 'Buy oversold, sell overbought',
+    color: 'text-blue-400', 
+    bg: 'bg-blue-500/10 border-blue-500/30',
+    gradient: 'from-blue-500/20 to-cyan-500/20',
+    glow: 'shadow-blue-500/20',
+    desc: 'Buy oversold, sell overbought at Bollinger extremes',
     style: 'Mean Reversion',
     holdTime: 'Hours'
   },
@@ -62,7 +76,9 @@ const STRATEGIES = [
     icon: Zap, 
     color: 'text-yellow-400', 
     bg: 'bg-yellow-500/10 border-yellow-500/30',
-    desc: 'Catch range breakouts on momentum',
+    gradient: 'from-yellow-500/20 to-orange-500/20',
+    glow: 'shadow-yellow-500/20',
+    desc: 'Catch range breakouts on high momentum',
     style: 'Breakout',
     holdTime: 'Hours-Days'
   },
@@ -70,9 +86,11 @@ const STRATEGIES = [
     id: 'scalp_sniper', 
     name: 'Scalp Sniper', 
     icon: Crosshair, 
-    color: 'text-red', 
-    bg: 'bg-red/10 border-red/30',
-    desc: 'Quick trades, tight SL/TP',
+    color: 'text-red-400', 
+    bg: 'bg-red-500/10 border-red-500/30',
+    gradient: 'from-red-500/20 to-pink-500/20',
+    glow: 'shadow-red-500/20',
+    desc: 'Quick trades on micro pullbacks, tight SL/TP',
     style: 'Scalping',
     holdTime: 'Minutes-Hours'
   },
@@ -80,9 +98,11 @@ const STRATEGIES = [
     id: 'swing_king', 
     name: 'Swing King', 
     icon: Crown, 
-    color: 'text-gold', 
-    bg: 'bg-gold/10 border-gold/30',
-    desc: 'Larger moves, patient entries',
+    color: 'text-amber-400', 
+    bg: 'bg-amber-500/10 border-amber-500/30',
+    gradient: 'from-amber-500/20 to-yellow-500/20',
+    glow: 'shadow-amber-500/20',
+    desc: 'Larger moves, wider stops, patient entries',
     style: 'Swing',
     holdTime: 'Days-Weeks'
   },
@@ -127,11 +147,13 @@ function getSignalBgColor(strength: number): string {
   return 'bg-white/5 border-white/10'
 }
 
-export default function DashboardClient({ profile, config, trades, heartbeat, equityHistory, stats, botEnabled = true, currentStrategy = 'apex_adaptive' }: Props) {
+export default function DashboardClient({ 
+  profile, config, trades, heartbeat, equityHistory, stats, 
+  botEnabled = true, currentStrategy = 'apex_adaptive', strategyStats = {} 
+}: Props) {
   const router = useRouter()
-  const [lastRefresh, setLastRefresh] = useState(new Date())
   const [isRefreshing, setIsRefreshing] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
+  const [showStrategyPicker, setShowStrategyPicker] = useState(false)
   const [expandedTrade, setExpandedTrade] = useState<string | null>(null)
   
   const [strategy, setStrategy] = useState(currentStrategy)
@@ -142,15 +164,10 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
   const [autoTrading, setAutoTrading] = useState(botEnabled)
   const [togglingAutoTrading, setTogglingAutoTrading] = useState(false)
 
-  const initialStrategy = currentStrategy
-  const initialRisk = (config as any)?.risk_level || 'medium'
-  const hasChanges = strategy !== initialStrategy || risk !== initialRisk
-
   useEffect(() => {
     const interval = setInterval(() => {
       setIsRefreshing(true)
       router.refresh()
-      setLastRefresh(new Date())
       setTimeout(() => setIsRefreshing(false), 500)
     }, 30000)
     return () => clearInterval(interval)
@@ -159,7 +176,6 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
   const handleManualRefresh = () => {
     setIsRefreshing(true)
     router.refresh()
-    setLastRefresh(new Date())
     setTimeout(() => setIsRefreshing(false), 500)
   }
 
@@ -183,25 +199,25 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
     }
   }
 
-  const handleSaveSettings = async () => {
+  const handleSelectStrategy = async (stratId: string) => {
     setSaving(true)
     try {
       const res = await fetch('/api/bot/settings', {
-        method: 'POST',
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: 'a040d19d-f40e-44f7-9b90-dead9d9bcfeb',
-          risk_level: risk,
-          strategy: strategy,
+          strategy: stratId,
         }),
       })
       if (res.ok) {
+        setStrategy(stratId)
         setSaved(true)
         setTimeout(() => {
           setSaved(false)
-          setShowSettings(false)
+          setShowStrategyPicker(false)
           router.refresh()
-        }, 1500)
+        }, 1000)
       }
     } finally {
       setSaving(false)
@@ -243,11 +259,11 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
   
   const closedTrades = trades.filter(t => t.closed_at)
   const unrealizedPnl = livePositions.reduce((sum, p) => sum + (p.unrealized_pnl ?? 0), 0)
-
   const signalRadar: SignalScan[] = (heartbeat as any)?.signal_radar ?? []
   
   const currentStrat = STRATEGIES.find(s => s.id === strategy) || STRATEGIES[0]
   const currentRisk = RISK_LEVELS.find(r => r.id === risk) || RISK_LEVELS[1]
+  const currentStratStats = strategyStats[strategy] || strategyStats[strategy?.toUpperCase()] || { trades: 0, wins: 0, losses: 0, pnl: 0 }
 
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto">
@@ -274,9 +290,6 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
             <Power className={`w-3 h-3 ${togglingAutoTrading ? 'animate-pulse' : ''}`} />
             {autoTrading ? 'Auto: ON' : 'Auto: OFF'}
           </button>
-          <button onClick={() => setShowSettings(true)} className="p-1.5 text-muted hover:text-white rounded-lg hover:bg-white/5">
-            <Settings className="w-4 h-4" />
-          </button>
           <button onClick={handleManualRefresh} className="p-1.5 text-muted hover:text-white">
             <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
           </button>
@@ -291,82 +304,162 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
         </div>
       )}
 
-      {/* Strategy Badge */}
-      <div className="flex items-center gap-2 mb-4">
-        <button onClick={() => setShowSettings(true)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs ${currentStrat.bg}`}>
-          <currentStrat.icon className={`w-3 h-3 ${currentStrat.color}`} />
-          <span className={currentStrat.color}>{currentStrat.name}</span>
-          <span className="text-muted">•</span>
-          <span>{currentRisk.pct} risk</span>
-        </button>
+      {/* ═══════════════════════════════════════════════════════════════════════
+          STRATEGY HERO CARD
+      ═══════════════════════════════════════════════════════════════════════ */}
+      <div 
+        className={`relative overflow-hidden rounded-xl border mb-4 bg-gradient-to-br ${currentStrat.gradient} ${currentStrat.bg} shadow-lg ${currentStrat.glow}`}
+      >
+        {/* Animated glow effect */}
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full animate-shimmer" />
+        
+        <div className="relative p-4">
+          {/* Top row: Icon, Name, Change button */}
+          <div className="flex items-start justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <div className={`p-2.5 rounded-xl ${currentStrat.bg} border`}>
+                <currentStrat.icon className={`w-6 h-6 ${currentStrat.color}`} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className={`text-lg font-bold ${currentStrat.color}`}>{currentStrat.name}</h2>
+                  <span className="px-2 py-0.5 rounded-full bg-white/10 text-[10px] font-medium text-white/70">ACTIVE</span>
+                </div>
+                <p className="text-xs text-white/60 mt-0.5">{currentStrat.desc}</p>
+              </div>
+            </div>
+            <button 
+              onClick={() => setShowStrategyPicker(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 border border-white/10 text-xs font-medium transition-all"
+            >
+              Change
+              <ArrowRight className="w-3 h-3" />
+            </button>
+          </div>
+
+          {/* Style badges */}
+          <div className="flex items-center gap-2 mb-4">
+            <span className="px-2 py-1 rounded-lg bg-white/10 text-[11px] font-medium">{currentStrat.style}</span>
+            <span className="px-2 py-1 rounded-lg bg-white/10 text-[11px] font-medium flex items-center gap-1">
+              <Clock className="w-3 h-3" />
+              {currentStrat.holdTime}
+            </span>
+            <span className="px-2 py-1 rounded-lg bg-white/10 text-[11px] font-medium">{currentRisk.pct} Risk</span>
+          </div>
+
+          {/* Performance stats */}
+          <div className="grid grid-cols-4 gap-3">
+            <div className="bg-black/20 rounded-lg p-2.5 text-center">
+              <p className="text-[10px] text-white/50 uppercase mb-1">Trades</p>
+              <p className="text-lg font-bold">{currentStratStats.trades}</p>
+            </div>
+            <div className="bg-black/20 rounded-lg p-2.5 text-center">
+              <p className="text-[10px] text-white/50 uppercase mb-1">Wins</p>
+              <p className="text-lg font-bold text-green">{currentStratStats.wins}</p>
+            </div>
+            <div className="bg-black/20 rounded-lg p-2.5 text-center">
+              <p className="text-[10px] text-white/50 uppercase mb-1">Losses</p>
+              <p className="text-lg font-bold text-red">{currentStratStats.losses}</p>
+            </div>
+            <div className="bg-black/20 rounded-lg p-2.5 text-center">
+              <p className="text-[10px] text-white/50 uppercase mb-1">P&L</p>
+              <p className={`text-lg font-bold ${currentStratStats.pnl >= 0 ? 'text-green' : 'text-red'}`}>
+                {fmtSigned(currentStratStats.pnl)}
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Settings Modal */}
-      {showSettings && (
+      {/* Strategy Picker Modal */}
+      {showStrategyPicker && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setShowSettings(false)} />
-          <div className="relative bg-surface border border-white/10 rounded-xl p-4 w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-bold">Bot Settings</h2>
-              <button onClick={() => setShowSettings(false)} className="p-1 text-muted hover:text-white">
-                <X className="w-4 h-4" />
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowStrategyPicker(false)} />
+          <div className="relative bg-surface border border-white/10 rounded-2xl p-5 w-full max-w-2xl max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h2 className="text-xl font-bold">Choose Strategy</h2>
+                <p className="text-sm text-muted mt-1">Select a trading strategy for the bot</p>
+              </div>
+              <button onClick={() => setShowStrategyPicker(false)} className="p-2 text-muted hover:text-white rounded-lg hover:bg-white/5">
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Strategy Selection */}
-            <div className="mb-4">
-              <p className="text-xs text-muted uppercase tracking-wider font-medium mb-2">Trading Strategy</p>
-              <div className="grid grid-cols-2 gap-2">
-                {STRATEGIES.map((s) => {
-                  const Icon = s.icon
-                  const isActive = strategy === s.id
-                  return (
-                    <button key={s.id} onClick={() => setStrategy(s.id)}
-                      className={`p-3 rounded-lg border text-left transition-all ${isActive ? s.bg : 'bg-white/5 border-white/10 hover:border-white/20'}`}>
-                      <div className="flex items-center gap-2 mb-1">
-                        <Icon className={`w-4 h-4 ${isActive ? s.color : 'text-muted'}`} />
-                        <span className={`text-sm font-medium ${isActive ? s.color : ''}`}>{s.name}</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {STRATEGIES.map((s) => {
+                const Icon = s.icon
+                const isActive = strategy === s.id
+                const sStats = strategyStats[s.id] || strategyStats[s.id?.toUpperCase()] || { trades: 0, wins: 0, losses: 0, pnl: 0 }
+                const winRate = sStats.trades > 0 ? ((sStats.wins / sStats.trades) * 100).toFixed(0) : '—'
+                
+                return (
+                  <button 
+                    key={s.id} 
+                    onClick={() => handleSelectStrategy(s.id)}
+                    disabled={saving}
+                    className={`relative p-4 rounded-xl border text-left transition-all ${
+                      isActive 
+                        ? `${s.bg} ring-2 ring-offset-2 ring-offset-black ${s.color.replace('text-', 'ring-')}`
+                        : 'bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/10'
+                    } ${saving ? 'opacity-50' : ''}`}
+                  >
+                    {isActive && (
+                      <div className="absolute top-2 right-2">
+                        <span className="px-2 py-0.5 rounded-full bg-white/20 text-[9px] font-bold uppercase">Current</span>
                       </div>
-                      <p className="text-[10px] text-muted mb-1">{s.desc}</p>
-                      <div className="flex items-center gap-2 text-[9px]">
-                        <span className="px-1.5 py-0.5 rounded bg-white/5">{s.style}</span>
-                        <span className="text-muted">{s.holdTime}</span>
+                    )}
+                    
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className={`p-2 rounded-lg ${isActive ? s.bg : 'bg-white/10'}`}>
+                        <Icon className={`w-5 h-5 ${isActive ? s.color : 'text-muted'}`} />
                       </div>
-                    </button>
-                  )
-                })}
-              </div>
+                      <div>
+                        <h3 className={`font-bold ${isActive ? s.color : ''}`}>{s.name}</h3>
+                        <p className="text-[11px] text-muted">{s.desc}</p>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="px-2 py-0.5 rounded bg-white/10 text-[10px]">{s.style}</span>
+                      <span className="text-[10px] text-muted">{s.holdTime}</span>
+                    </div>
+                    
+                    {/* Strategy stats */}
+                    <div className="grid grid-cols-4 gap-2 pt-2 border-t border-white/10">
+                      <div className="text-center">
+                        <p className="text-[9px] text-muted">Trades</p>
+                        <p className="text-sm font-bold">{sStats.trades}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[9px] text-muted">Win%</p>
+                        <p className="text-sm font-bold">{winRate}{winRate !== '—' && '%'}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[9px] text-muted">W/L</p>
+                        <p className="text-sm font-bold">
+                          <span className="text-green">{sStats.wins}</span>
+                          <span className="text-muted">/</span>
+                          <span className="text-red">{sStats.losses}</span>
+                        </p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[9px] text-muted">P&L</p>
+                        <p className={`text-sm font-bold ${sStats.pnl >= 0 ? 'text-green' : 'text-red'}`}>
+                          {sStats.pnl !== 0 ? fmtSigned(sStats.pnl) : '—'}
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                )
+              })}
             </div>
 
-            {/* Risk Level */}
-            <div className="mb-4">
-              <p className="text-xs text-muted uppercase tracking-wider font-medium mb-2">Risk per Trade</p>
-              <div className="grid grid-cols-3 gap-2">
-                {RISK_LEVELS.map((r) => {
-                  const isActive = risk === r.id
-                  return (
-                    <button key={r.id} onClick={() => setRisk(r.id)}
-                      className={`p-3 rounded-lg border text-center transition-all ${isActive ? 'bg-green/10 border-green/30' : 'bg-white/5 border-white/10 hover:border-white/20'}`}>
-                      <p className={`text-lg font-bold ${isActive ? 'text-green' : ''}`}>{r.pct}</p>
-                      <p className="text-[10px] text-muted">{r.name}</p>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            {/* Warning for risky combos */}
-            {(strategy === 'scalp_sniper' && risk === 'high') && (
-              <div className="flex items-center gap-2 p-2 rounded-lg bg-red/10 border border-red/20 mb-4">
-                <AlertTriangle className="w-4 h-4 text-red flex-shrink-0" />
-                <p className="text-xs text-red">Scalping + High risk = frequent large losses possible!</p>
+            {saved && (
+              <div className="mt-4 p-3 rounded-lg bg-green/10 border border-green/30 text-center">
+                <p className="text-green font-medium">✓ Strategy updated!</p>
               </div>
             )}
-
-            <button onClick={handleSaveSettings} disabled={saving || !hasChanges}
-              className="w-full py-2 rounded-lg bg-green text-black font-medium text-sm hover:bg-green/90 disabled:opacity-50 transition-all">
-              {saving ? 'Saving...' : saved ? '✓ Saved!' : hasChanges ? 'Save Changes' : 'No Changes'}
-            </button>
           </div>
         </div>
       )}
@@ -452,13 +545,12 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
               const tp = t.take_profit || 0
               const slDist = Math.abs(entry - sl)
               const tpDist = Math.abs(tp - entry)
-              const totalRange = slDist + tpDist
               
               let progress = 50
               let slPct = 0
               let tpPct = 0
               
-              if (current && totalRange > 0) {
+              if (current && (slDist + tpDist) > 0) {
                 if (t.side === 'LONG') {
                   const moved = current - entry
                   if (moved >= 0) {
@@ -509,7 +601,6 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
                     <div className={`text-sm font-bold ${isProfit ? 'text-green' : 'text-red'}`}>{fmtSigned(pnl)}</div>
                   </div>
 
-                  {/* SL/TP Progress Bar */}
                   <div className="mb-2">
                     <div className="flex items-center justify-between text-[9px] text-muted mb-1">
                       <span className="text-red">SL ${sl.toLocaleString()}</span>
@@ -530,36 +621,24 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
                     </div>
                   </div>
 
-                  {/* Trade Explainer */}
                   {isExpanded && (
                     <div className="mt-2 p-2 rounded-lg bg-white/5 border border-white/10">
                       <div className="flex items-start gap-2 mb-3">
                         <Info className="w-3 h-3 text-blue mt-0.5 flex-shrink-0" />
                         <div className="text-xs text-muted leading-relaxed">
-                          {explanation || (
-                            <>
-                              <span className="text-white font-medium">Why this trade?</span>
-                              <br />
-                              Opened {t.side} {t.symbol} using <span className="text-blue">{(t as any).strategy || 'UNKNOWN'}</span> strategy.
-                              {(t as any).regime && <> Market regime: <span className="text-green">{(t as any).regime}</span>.</>}
-                            </>
-                          )}
+                          {explanation || `Opened ${t.side} ${t.symbol} using ${(t as any).strategy || 'UNKNOWN'} strategy.`}
                         </div>
                       </div>
                       
                       <button
                         onClick={async () => {
-                          if (confirm(`Close ${t.symbol} position now at market price?`)) {
-                            try {
-                              await fetch('/api/bot/close', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ trade_id: t.id, symbol: t.symbol }),
-                              })
-                              router.refresh()
-                            } catch (e) {
-                              console.error('Close failed:', e)
-                            }
+                          if (confirm(`Close ${t.symbol} position now?`)) {
+                            await fetch('/api/bot/close', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ trade_id: t.id, symbol: t.symbol }),
+                            })
+                            router.refresh()
                           }
                         }}
                         className="w-full py-1.5 rounded bg-red/20 border border-red/30 text-red text-xs font-medium hover:bg-red/30 transition-all"
@@ -607,7 +686,6 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
           </div>
           <div className="space-y-1">
             {closedTrades.slice(0, 5).map(t => {
-              const explanation = (t as any).explanation
               const isExpanded = expandedTrade === t.id
               
               return (
@@ -616,6 +694,9 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
                     <div className="flex items-center gap-2">
                       <span className={`text-[10px] font-bold ${t.side === 'LONG' ? 'text-green' : 'text-red'}`}>{t.side}</span>
                       <span className="text-xs">{t.symbol}</span>
+                      {(t as any).strategy && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-muted">{(t as any).strategy}</span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       <span className={`text-xs font-bold ${(t.pnl ?? 0) >= 0 ? 'text-green' : 'text-red'}`}>{fmtSigned(t.pnl)}</span>
@@ -630,30 +711,10 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
                   </div>
                   
                   {isExpanded && (
-                    <div className="mt-2 p-2 rounded-lg bg-white/5 border border-white/10">
-                      <div className="text-xs text-muted leading-relaxed space-y-1">
-                        <div className="flex justify-between">
-                          <span>Entry:</span>
-                          <span className="text-white">${t.entry_price?.toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Exit:</span>
-                          <span className="text-white">${t.exit_price?.toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Duration:</span>
-                          <span className="text-white">{(t as any).held_minutes ? `${(t as any).held_minutes}m` : '—'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Strategy:</span>
-                          <span className="text-blue">{(t as any).strategy || '—'}</span>
-                        </div>
-                        {explanation && (
-                          <div className="pt-1 mt-1 border-t border-white/10">
-                            <p className="text-white/80">{explanation}</p>
-                          </div>
-                        )}
-                      </div>
+                    <div className="mt-2 p-2 rounded-lg bg-white/5 border border-white/10 text-xs text-muted space-y-1">
+                      <div className="flex justify-between"><span>Entry:</span><span className="text-white">${t.entry_price?.toLocaleString()}</span></div>
+                      <div className="flex justify-between"><span>Exit:</span><span className="text-white">${t.exit_price?.toLocaleString()}</span></div>
+                      <div className="flex justify-between"><span>Strategy:</span><span className="text-blue">{(t as any).strategy || '—'}</span></div>
                     </div>
                   )}
                 </div>
@@ -673,7 +734,7 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
               <span className={
                 heartbeat?.regime === 'TRENDING_UP' ? 'text-green' :
                 heartbeat?.regime === 'TRENDING_DOWN' ? 'text-red' :
-                heartbeat?.regime === 'VOLATILE' ? 'text-gold' : 'text-blue'
+                heartbeat?.regime === 'VOLATILE' ? 'text-amber-400' : 'text-blue'
               }>{heartbeat?.regime?.replace('_', ' ') ?? '—'}</span>
             </div>
             <div className="flex justify-between text-xs">

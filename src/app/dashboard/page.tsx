@@ -16,6 +16,7 @@ export default async function DashboardPage() {
     { data: equityHistory },
     { data: stats },
     { data: botSettings },
+    { data: allTrades },
   ] = await Promise.all([
     supabase.from('profiles').select('*').eq('id', userId).single(),
     supabase.from('bot_configs').select('*').eq('user_id', userId).single(),
@@ -27,7 +28,27 @@ export default async function DashboardPage() {
       .order('snapshot_at', { ascending: true }).limit(90),
     supabase.from('user_stats').select('*').eq('user_id', userId).single(),
     supabase.from('bot_settings').select('enabled, strategy').eq('user_id', userId).single(),
+    supabase.from('trades').select('strategy, pnl, closed_at').eq('user_id', userId).not('closed_at', 'is', null),
   ])
+
+  // Calculate per-strategy stats
+  const strategyStats: Record<string, { trades: number; wins: number; losses: number; pnl: number }> = {}
+  
+  if (allTrades) {
+    for (const trade of allTrades) {
+      const strat = trade.strategy || 'unknown'
+      if (!strategyStats[strat]) {
+        strategyStats[strat] = { trades: 0, wins: 0, losses: 0, pnl: 0 }
+      }
+      strategyStats[strat].trades++
+      strategyStats[strat].pnl += trade.pnl || 0
+      if ((trade.pnl || 0) > 0) {
+        strategyStats[strat].wins++
+      } else if ((trade.pnl || 0) < 0) {
+        strategyStats[strat].losses++
+      }
+    }
+  }
 
   return (
     <DashboardClient
@@ -39,6 +60,7 @@ export default async function DashboardPage() {
       stats={stats}
       botEnabled={botSettings?.enabled ?? true}
       currentStrategy={botSettings?.strategy ?? 'apex_adaptive'}
+      strategyStats={strategyStats}
     />
   )
 }
