@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
-import { TrendingUp, TrendingDown, Activity, Zap, Shield, AlertTriangle, RefreshCw } from 'lucide-react'
+import { TrendingUp, TrendingDown, Activity, Shield, AlertTriangle, RefreshCw } from 'lucide-react'
 import type { Profile, BotConfig, Trade, BotHeartbeat, EquitySnapshot, UserStats } from '@/types'
 
 interface Props {
@@ -43,11 +43,6 @@ function fmtSigned(n: number | null | undefined, prefix = '$') {
   return n >= 0 ? `+${prefix}${s}` : `-${prefix}${s}`
 }
 
-function pct(n: number | null | undefined) {
-  if (n == null) return '—'
-  return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
-}
-
 export default function DashboardClient({ profile, config, trades, heartbeat, equityHistory, stats }: Props) {
   const router = useRouter()
   const [lastRefresh, setLastRefresh] = useState(new Date())
@@ -81,78 +76,74 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
     equity: e.equity,
   }))
 
-  // Use pnl_today from heartbeat (includes unrealized) or fall back to stats
   const todayPnl = heartbeat?.pnl_today ?? stats?.pnl_today ?? 0
   const unrealizedPnl = (heartbeat as any)?.unrealized_pnl ?? 0
   const totalPnl = stats?.total_pnl ?? 0
   const winRate = stats?.win_rate_pct ?? 0
   const totalTrades = stats?.total_trades ?? 0
 
-  // Calculate unrealized P&L from open trades if not in heartbeat
   const openTrades = trades.filter(t => !t.closed_at)
   const tradesUnrealizedPnl = openTrades.reduce((sum, t) => sum + ((t as any).unrealized_pnl ?? 0), 0)
   const displayUnrealizedPnl = unrealizedPnl || tradesUnrealizedPnl
 
   return (
-    <div className="p-6 md:p-8 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+    <div className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto">
+      {/* Header - Mobile Optimized */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Dashboard</h1>
-          <p className="text-muted text-sm mt-0.5">
-            {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
+          <h1 className="text-xl sm:text-2xl font-bold">Dashboard</h1>
+          <p className="text-muted text-xs sm:text-sm mt-0.5">
+            {new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
           </p>
         </div>
 
         {/* Bot status & refresh */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <button 
             onClick={handleManualRefresh}
-            className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted hover:text-white transition-colors"
+            className="flex items-center gap-1 px-2 py-1 text-xs text-muted hover:text-white transition-colors"
             title={`Last updated: ${lastRefresh.toLocaleTimeString()}`}
           >
             <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline">
-              {lastRefresh.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </span>
+            <span>{lastRefresh.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
           </button>
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-medium
+          <div className={`flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full border text-xs sm:text-sm font-medium
             ${botOnline
               ? 'bg-green/5 border-green/20 text-green'
               : 'bg-white/5 border-white/10 text-muted'}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${botOnline ? 'bg-green animate-pulse' : 'bg-subtle'}`} />
-            {botOnline ? 'Bot live' : 'Bot offline'}
+            {botOnline ? 'Live' : 'Offline'}
           </div>
           {config?.testnet && (
-            <span className="badge-gold">Testnet</span>
+            <span className="badge-gold text-xs">Test</span>
           )}
         </div>
       </div>
 
-      {/* Setup prompt if not configured */}
+      {/* Setup prompt */}
       {!config?.hl_wallet_address && (
-        <div className="card border-gold/20 bg-gold/5 mb-6 flex items-center gap-4">
-          <AlertTriangle className="w-5 h-5 text-gold flex-shrink-0" />
-          <div className="flex-1">
-            <p className="text-sm font-medium text-gold">Complete your setup</p>
-            <p className="text-xs text-muted mt-0.5">Add your Hyperliquid API wallet to start trading.</p>
+        <div className="card border-gold/20 bg-gold/5 mb-4 sm:mb-6 flex items-center gap-3 p-3 sm:p-4">
+          <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 text-gold flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs sm:text-sm font-medium text-gold">Complete setup</p>
+            <p className="text-xs text-muted mt-0.5 truncate">Add your Hyperliquid API wallet</p>
           </div>
-          <a href="/settings" className="btn-secondary text-sm">Configure →</a>
+          <a href="/settings" className="btn-secondary text-xs whitespace-nowrap">Setup →</a>
         </div>
       )}
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      {/* Stat cards - 2x2 grid on mobile */}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4 sm:mb-6">
         <StatCard
-          label="Today's P&L"
+          label="Today"
           value={fmtSigned(todayPnl)}
-          sub={displayUnrealizedPnl !== 0 ? `${fmtSigned(displayUnrealizedPnl)} unrealized` : undefined}
+          sub={displayUnrealizedPnl !== 0 ? `${fmtSigned(displayUnrealizedPnl)} unreal.` : undefined}
           positive={todayPnl >= 0}
           icon={todayPnl >= 0 ? TrendingUp : TrendingDown}
           iconColor={todayPnl >= 0 ? 'text-green' : 'text-red'}
         />
         <StatCard
-          label="Total P&L"
+          label="Total"
           value={fmtSigned(totalPnl)}
           positive={totalPnl >= 0}
           icon={TrendingUp}
@@ -166,45 +157,45 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
           iconColor="text-blue"
         />
         <StatCard
-          label="Total Trades"
+          label="Trades"
           value={String(totalTrades)}
-          sub={config?.testnet ? 'Testnet mode' : 'Live'}
+          sub={config?.testnet ? 'Testnet' : 'Live'}
           icon={Activity}
           iconColor="text-muted"
         />
       </div>
 
-      {/* Chart + Market status */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+      {/* Portfolio + Market Intelligence - Stack on mobile */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
         {/* Equity chart */}
-        <div className="card lg:col-span-2">
-          <div className="flex items-center justify-between mb-4">
+        <div className="card p-3 sm:p-4 lg:col-span-2">
+          <div className="flex items-center justify-between mb-3 sm:mb-4">
             <div>
-              <p className="text-xs text-muted uppercase tracking-wider font-medium">Portfolio Value</p>
-              <p className="text-2xl font-bold mt-0.5">
+              <p className="text-xs text-muted uppercase tracking-wider font-medium">Portfolio</p>
+              <p className="text-lg sm:text-2xl font-bold mt-0.5">
                 {heartbeat ? fmt(heartbeat.equity) : '—'}
               </p>
             </div>
             {displayUnrealizedPnl !== 0 && (
-              <div className={`text-sm font-medium ${displayUnrealizedPnl >= 0 ? 'text-green' : 'text-red'}`}>
-                {fmtSigned(displayUnrealizedPnl)} unrealized
+              <div className={`text-xs sm:text-sm font-medium ${displayUnrealizedPnl >= 0 ? 'text-green' : 'text-red'}`}>
+                {fmtSigned(displayUnrealizedPnl)}
               </div>
             )}
           </div>
           {chartData.length > 1 ? (
-            <ResponsiveContainer width="100%" height={160}>
-              <AreaChart data={chartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+            <ResponsiveContainer width="100%" height={120}>
+              <AreaChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="equityGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#00d084" stopOpacity={0.15} />
+                    <stop offset="5%" stopColor="#00d084" stopOpacity={0.15} />
                     <stop offset="95%" stopColor="#00d084" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="time" tick={{ fill: '#6b7a99', fontSize: 10 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: '#6b7a99', fontSize: 10 }} axisLine={false} tickLine={false} width={60}
+                <XAxis dataKey="time" tick={{ fill: '#6b7a99', fontSize: 9 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: '#6b7a99', fontSize: 9 }} axisLine={false} tickLine={false} width={50}
                   tickFormatter={v => `$${(v/1000).toFixed(1)}k`} />
                 <Tooltip
-                  contentStyle={{ background: '#0f1117', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, fontSize: 12 }}
+                  contentStyle={{ background: '#0f1117', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, fontSize: 11 }}
                   labelStyle={{ color: '#9ba3b8' }}
                   itemStyle={{ color: '#00d084' }}
                   formatter={(v: number) => [`$${v.toFixed(2)}`, 'Equity']}
@@ -214,121 +205,111 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
               </AreaChart>
             </ResponsiveContainer>
           ) : (
-            <div className="h-40 flex items-center justify-center text-subtle text-sm">
-              Equity history will appear here once the bot starts running.
+            <div className="h-24 sm:h-32 flex items-center justify-center text-subtle text-xs sm:text-sm">
+              Chart appears once bot starts
             </div>
           )}
         </div>
 
         {/* Market intelligence */}
-        <div className="card">
-          <p className="text-xs text-muted uppercase tracking-wider font-medium mb-4">Market Intelligence</p>
+        <div className="card p-3 sm:p-4">
+          <p className="text-xs text-muted uppercase tracking-wider font-medium mb-3">Market</p>
           {heartbeat ? (
-            <div className="space-y-4">
-              <div>
-                <p className="text-xs text-subtle mb-1">Regime</p>
-                <p className={`text-sm font-semibold ${REGIME_COLOUR[heartbeat.regime] ?? 'text-muted'}`}>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-subtle">Regime</span>
+                <span className={`text-xs font-semibold ${REGIME_COLOUR[heartbeat.regime] ?? 'text-muted'}`}>
                   {heartbeat.regime?.replace('_', ' ') ?? '—'}
-                </p>
+                </span>
               </div>
-              <div>
-                <p className="text-xs text-subtle mb-1">Macro</p>
-                <span className={MACRO_COLOUR[heartbeat.macro_context] ?? 'badge-subtle'}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-subtle">Macro</span>
+                <span className={`text-xs ${MACRO_COLOUR[heartbeat.macro_context] ?? 'badge-subtle'}`}>
                   {heartbeat.macro_context ?? 'NONE'}
                 </span>
               </div>
-              <div className="pt-3 border-t border-white/[0.06] grid grid-cols-2 gap-3">
+              <div className="pt-2 border-t border-white/[0.06] grid grid-cols-2 gap-2">
                 <div>
-                  <p className="text-xs text-subtle">Trades today</p>
-                  <p className="text-lg font-bold mt-0.5">{heartbeat.trades_today}</p>
+                  <p className="text-xs text-subtle">Today</p>
+                  <p className="text-sm font-bold">{heartbeat.trades_today}</p>
                 </div>
                 <div>
                   <p className="text-xs text-subtle">Open</p>
-                  <p className="text-lg font-bold mt-0.5">{heartbeat.open_positions}</p>
+                  <p className="text-sm font-bold">{heartbeat.open_positions}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-subtle">P&L today</p>
-                  <p className={`text-lg font-bold mt-0.5 ${(heartbeat.pnl_today ?? 0) >= 0 ? 'text-green' : 'text-red'}`}>
+                  <p className="text-xs text-subtle">P&L</p>
+                  <p className={`text-sm font-bold ${(heartbeat.pnl_today ?? 0) >= 0 ? 'text-green' : 'text-red'}`}>
                     {fmtSigned(heartbeat.pnl_today)}
                   </p>
                 </div>
                 <div>
                   <p className="text-xs text-subtle">Cycles</p>
-                  <p className="text-lg font-bold mt-0.5">{heartbeat.cycles_today}</p>
+                  <p className="text-sm font-bold">{heartbeat.cycles_today}</p>
                 </div>
               </div>
             </div>
           ) : (
-            <div className="h-full flex items-center justify-center text-subtle text-sm py-10">
-              Waiting for bot data…
+            <div className="h-full flex items-center justify-center text-subtle text-xs py-6">
+              Waiting for bot…
             </div>
           )}
         </div>
       </div>
 
-      {/* Recent trades */}
-      <div className="card">
-        <div className="flex items-center justify-between mb-4">
-          <p className="text-sm font-semibold">Recent Trades</p>
+      {/* Recent trades - Horizontal scroll on mobile */}
+      <div className="card p-3 sm:p-4">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs sm:text-sm font-semibold">Recent Trades</p>
           <a href="/dashboard/trades" className="text-xs text-green hover:underline">View all</a>
         </div>
         {trades.length === 0 ? (
-          <div className="py-12 text-center text-subtle text-sm">
-            No trades yet. Paper trading will begin on the next bot cycle.
+          <div className="py-8 text-center text-subtle text-xs sm:text-sm">
+            No trades yet
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0">
+            <table className="w-full text-xs sm:text-sm min-w-[500px]">
               <thead>
                 <tr className="text-xs text-subtle uppercase tracking-wider border-b border-white/[0.06]">
-                  <th className="text-left py-2 pr-4 font-medium">Symbol</th>
-                  <th className="text-left py-2 pr-4 font-medium">Side</th>
-                  <th className="text-left py-2 pr-4 font-medium">Entry</th>
-                  <th className="text-left py-2 pr-4 font-medium">Current</th>
-                  <th className="text-left py-2 pr-4 font-medium">P&L</th>
-                  <th className="text-left py-2 pr-4 font-medium">Regime</th>
+                  <th className="text-left py-2 pr-3 font-medium">Symbol</th>
+                  <th className="text-left py-2 pr-3 font-medium">Side</th>
+                  <th className="text-left py-2 pr-3 font-medium">Entry</th>
+                  <th className="text-left py-2 pr-3 font-medium">P&L</th>
                   <th className="text-left py-2 font-medium">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.04]">
-                {trades.map(t => {
+                {trades.slice(0, 5).map(t => {
                   const unrealized = (t as any).unrealized_pnl
-                  const currentPrice = (t as any).current_price
                   const isOpen = !t.closed_at
                   const pnlValue = isOpen ? unrealized : t.pnl
-                  const pnlDisplay = pnlValue != null ? pnlValue : null
                   
                   return (
-                    <tr key={t.id} className="hover:bg-white/[0.02] transition-colors">
-                      <td className="py-2.5 pr-4 font-medium font-mono text-xs">{t.symbol}-PERP</td>
-                      <td className="py-2.5 pr-4">
-                        <span className={t.side === 'LONG' ? 'text-green text-xs font-semibold' : 'text-red text-xs font-semibold'}>
+                    <tr key={t.id} className="hover:bg-white/[0.02]">
+                      <td className="py-2 pr-3 font-medium font-mono">{t.symbol}</td>
+                      <td className="py-2 pr-3">
+                        <span className={t.side === 'LONG' ? 'text-green font-semibold' : 'text-red font-semibold'}>
                           {t.side}
                         </span>
                       </td>
-                      <td className="py-2.5 pr-4 font-mono text-xs text-muted">
+                      <td className="py-2 pr-3 font-mono text-muted">
                         ${t.entry_price?.toLocaleString()}
                       </td>
-                      <td className="py-2.5 pr-4 font-mono text-xs text-muted">
-                        {currentPrice ? `$${currentPrice.toLocaleString()}` : '—'}
-                      </td>
-                      <td className="py-2.5 pr-4 font-mono text-xs">
-                        {pnlDisplay != null ? (
-                          <span className={pnlDisplay >= 0 ? 'text-green' : 'text-red'}>
-                            {fmtSigned(pnlDisplay)}
+                      <td className="py-2 pr-3 font-mono">
+                        {pnlValue != null ? (
+                          <span className={pnlValue >= 0 ? 'text-green' : 'text-red'}>
+                            {fmtSigned(pnlValue)}
                           </span>
                         ) : <span className="text-subtle">—</span>}
                       </td>
-                      <td className="py-2.5 pr-4">
-                        <span className="text-xs text-subtle">{t.regime?.replace('_', ' ') ?? '—'}</span>
-                      </td>
-                      <td className="py-2.5">
+                      <td className="py-2">
                         {t.closed_at ? (
-                          <span className={t.pnl && t.pnl >= 0 ? 'badge-green' : 'badge-red'}>
+                          <span className={`text-xs px-1.5 py-0.5 rounded ${t.pnl && t.pnl >= 0 ? 'bg-green/10 text-green' : 'bg-red/10 text-red'}`}>
                             {t.close_reason ?? 'Closed'}
                           </span>
                         ) : (
-                          <span className="badge-blue">Open</span>
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-blue/10 text-blue">Open</span>
                         )}
                       </td>
                     </tr>
@@ -350,16 +331,16 @@ function StatCard({
   positive?: boolean; icon: any; iconColor: string
 }) {
   return (
-    <div className="card flex items-start justify-between gap-2">
-      <div>
-        <p className="text-xs text-muted uppercase tracking-wider font-medium mb-2">{label}</p>
-        <p className={`text-xl font-bold ${positive === true ? 'text-green' : positive === false ? 'text-red' : ''}`}>
+    <div className="card p-3 sm:p-4 flex items-start justify-between gap-2">
+      <div className="min-w-0">
+        <p className="text-xs text-muted uppercase tracking-wider font-medium mb-1">{label}</p>
+        <p className={`text-base sm:text-xl font-bold truncate ${positive === true ? 'text-green' : positive === false ? 'text-red' : ''}`}>
           {value}
         </p>
-        {sub && <p className="text-xs text-subtle mt-1">{sub}</p>}
+        {sub && <p className="text-xs text-subtle mt-0.5 truncate">{sub}</p>}
       </div>
-      <div className={`w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0 ${iconColor}`}>
-        <Icon className="w-4 h-4" />
+      <div className={`w-6 h-6 sm:w-8 sm:h-8 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0 ${iconColor}`}>
+        <Icon className="w-3 h-3 sm:w-4 sm:h-4" />
       </div>
     </div>
   )
