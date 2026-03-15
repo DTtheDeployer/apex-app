@@ -1025,15 +1025,15 @@ class HyperliquidClient:
             unrealized = self._calculate_unrealized_pnl(p) if current_price else 0
             pnl_pct = (unrealized / p.size * 100) if p.size > 0 else 0
             result.append({
-                "id": p.id, "symbol": p.symbol, "side": p.side,
-                "entry_price": p.entry_price, "current_price": current_price,
-                "size": p.size, "unrealized_pnl": round(unrealized, 2),
-                "pnl_pct": round(pnl_pct, 2), "leverage": p.leverage,
-                "stop_loss": p.stop_loss, "take_profit": p.take_profit,
-                "strategy": p.strategy, "explanation": p.explanation,
-                "regime": p.regime 
-                "opened_at": p.entry_time.isoformat() if p.entry_time else None,
-            })
+    "id": p.id, "symbol": p.symbol, "side": p.side,
+    "entry_price": p.entry_price, "current_price": current_price,
+    "size": p.size, "unrealized_pnl": round(unrealized, 2),
+    "pnl_pct": round(pnl_pct, 2), "leverage": p.leverage,
+    "stop_loss": p.stop_loss, "take_profit": p.take_profit,
+    "strategy": p.strategy, "explanation": p.explanation,
+    "regime": p.regime,
+    "opened_at": p.entry_time.isoformat() if hasattr(p, 'entry_time') and p.entry_time else None,
+})
         return result
     
     def open_position(self, signal: Signal, size: float, leverage: int) -> Optional[Position]:
@@ -1287,7 +1287,7 @@ class BotSync:
             "size": result["size"], "pnl": round(result["pnl"], 4),
             "pnl_pct": round(result["pnl_pct"], 4), "close_reason": result["reason"],
             "held_minutes": result["held_minutes"],
-            "strategy": result.get("strategy", ""),
+            "strategy": result.get("strategy", "") or position.strategy,
             "explanation": result.get("close_explanation", ""),
             "paper": paper, "timestamp": datetime.now(timezone.utc).isoformat(),
         })

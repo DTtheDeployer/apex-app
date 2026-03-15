@@ -142,38 +142,40 @@ class BotSync:
         })
 
     def trade_close(
-        self,
-        close_id: str,
-        signal_id: str,       # ID of the original signal
-        symbol: str,
-        side: str,
-        entry_price: float,
-        exit_price: float,
-        size: float,
-        pnl: float,
-        pnl_pct: float,
-        close_reason: str,    # TP | SL | MANUAL
-        held_minutes: int,
-        paper: bool = True,
-    ):
+    self,
+    close_id: str,
+    signal_id: str,       # ID of the original signal
+    symbol: str,
+    side: str,
+    entry_price: float,
+    exit_price: float,
+    size: float,
+    pnl: float,
+    pnl_pct: float,
+    close_reason: str,    # TP | SL | MANUAL
+    held_minutes: int,
+    paper: bool = True,
+    strategy: str = "",   # ADD THIS LINE
+):
         """Call when a position is closed."""
         self._pnl_today += pnl
         self._post({
-            "type":          "trade_close",
-            "id":            close_id,
-            "signal_id":     signal_id,
-            "symbol":        symbol,
-            "side":          side,
-            "entry_price":   entry_price,
-            "exit_price":    exit_price,
-            "size":          size,
-            "pnl":           round(pnl, 4),
-            "pnl_pct":       round(pnl_pct, 4),
-            "close_reason":  close_reason,
-            "held_minutes":  held_minutes,
-            "paper":         paper,
-            "timestamp":     datetime.now(timezone.utc).isoformat(),
-        })
+    "type":          "trade_close",
+    "id":            close_id,
+    "signal_id":     signal_id,
+    "symbol":        symbol,
+    "side":          side,
+    "entry_price":   entry_price,
+    "exit_price":    exit_price,
+    "size":          size,
+    "pnl":           round(pnl, 4),
+    "pnl_pct":       round(pnl_pct, 4),
+    "close_reason":  close_reason,
+    "held_minutes":  held_minutes,
+    "paper":         paper,
+    "strategy":      strategy,   # ADD THIS LINE
+    "timestamp":     datetime.now(timezone.utc).isoformat(),
+})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
