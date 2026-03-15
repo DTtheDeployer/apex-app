@@ -52,6 +52,7 @@ async function handleHeartbeat(userId: string, data: any) {
     pnl_today,
     unrealized_pnl,
     positions,
+    signal_radar,
   } = data
 
   // Upsert heartbeat record
@@ -67,6 +68,8 @@ async function handleHeartbeat(userId: string, data: any) {
       trades_today,
       pnl_today,
       unrealized_pnl: unrealized_pnl ?? 0,
+      positions: positions ?? [],
+      signal_radar: signal_radar ?? [],
       created_at: new Date().toISOString(),
     }, {
       onConflict: 'user_id'
@@ -88,13 +91,11 @@ async function handleHeartbeat(userId: string, data: any) {
 
   if (snapshotError) {
     console.error('Snapshot error:', snapshotError)
-    // Don't fail the request for snapshot errors
   }
 
   // Update live P&L for open trades if positions data is provided
   if (positions && Array.isArray(positions)) {
     for (const pos of positions) {
-      // Update the trade record with current unrealized P&L
       await supabase
         .from('trades')
         .update({
@@ -182,7 +183,6 @@ async function handleTradeClose(userId: string, data: any) {
     timestamp,
   } = data
 
-  // Update the existing trade record
   const { error } = await supabase
     .from('trades')
     .update({
@@ -203,7 +203,6 @@ async function handleTradeClose(userId: string, data: any) {
     return NextResponse.json({ error: 'Failed to close trade' }, { status: 500 })
   }
 
-  // Update user stats
   const { data: trades } = await supabase
     .from('trades')
     .select('pnl')
