@@ -26,10 +26,10 @@ export async function GET(request: NextRequest) {
     .eq('user_id', userId)
     .single()
 
-  // Fetch enabled status from bot_settings
+  // Fetch from bot_settings (enabled + strategy)
   const { data: settingsData } = await supabase
     .from('bot_settings')
-    .select('enabled')
+    .select('enabled, strategy')
     .eq('user_id', userId)
     .single()
 
@@ -45,6 +45,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     strategy_mode: configData.strategy_mode || 'balanced',
+    strategy: settingsData?.strategy || 'apex_adaptive',
     risk_per_trade: riskMap[configData.risk_level] || 0.04,
     max_positions: configData.max_positions || 3,
     assets: configData.assets || ['BTC', 'ETH', 'SOL', 'ARB', 'DOGE'],
@@ -57,13 +58,14 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { user_id, strategy_mode, risk_level } = body
+    const { user_id, strategy_mode, risk_level, strategy } = body
 
     if (!user_id) {
       return NextResponse.json({ error: 'Missing user_id' }, { status: 400 })
     }
 
-    const { error } = await supabase
+    // Update bot_configs
+    const { error: configError } = await supabase
       .from('bot_configs')
       .upsert({
         user_id,
@@ -72,8 +74,20 @@ export async function POST(request: NextRequest) {
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id' })
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
+    if (configError) {
+      return NextResponse.json({ error: configError.message }, { status: 500 })
+    }
+
+    // Update strategy in bot_settings if provided
+    if (strategy) {
+      const { error: settingsError } = await supabase
+        .from('bot_settings')
+        .update({ strategy })
+        .eq('user_id', user_id)
+
+      if (settingsError) {
+        console.error('Strategy update error:', settingsError)
+      }
     }
 
     return NextResponse.json({ success: true })
@@ -82,26 +96,38 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PATCH - Toggle auto-trading on/off
+// PATCH - Toggle auto-trading on/off or update strategy
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json()
-    const { user_id, enabled } = body
+    const { user_id, enabled, strategy } = body
 
-    if (!user_id || typeof enabled !== 'boolean') {
-      return NextResponse.json({ error: 'Missing user_id or enabled' }, { status: 400 })
+    if (!user_id) {
+      return NextResponse.json({ error: 'Missing user_id' }, { status: 400 })
+    }
+
+    const updateData: any = {}
+    if (typeof enabled === 'boolean') {
+      updateData.enabled = enabled
+    }
+    if (strategy) {
+      updateData.strategy = strategy
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
     }
 
     const { error } = await supabase
       .from('bot_settings')
-      .update({ enabled })
+      .update(updateData)
       .eq('user_id', user_id)
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    return NextResponse.json({ success: true, enabled })
+    return NextResponse.json({ success: true, ...updateData })
   } catch (e) {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
   }

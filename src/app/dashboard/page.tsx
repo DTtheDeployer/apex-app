@@ -26,7 +26,7 @@ export default async function DashboardPage() {
     supabase.from('equity_snapshots').select('*').eq('user_id', userId)
       .order('snapshot_at', { ascending: true }).limit(90),
     supabase.from('user_stats').select('*').eq('user_id', userId).single(),
-    supabase.from('bot_settings').select('enabled').eq('user_id', userId).single(),
+    supabase.from('bot_settings').select('enabled, strategy').eq('user_id', userId).single(),
   ])
 
   return (
@@ -38,6 +38,7 @@ export default async function DashboardPage() {
       equityHistory={equityHistory ?? []}
       stats={stats}
       botEnabled={botSettings?.enabled ?? true}
+      currentStrategy={botSettings?.strategy ?? 'apex_adaptive'}
     />
   )
 }

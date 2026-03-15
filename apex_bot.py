@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-APEX Trading Bot v4 - With Trade Explanations
-==============================================
-Generates plain-English explanations for every trade.
+APEX Trading Bot v6 - Multi-Strategy
+=====================================
+Supports multiple trading strategies with simple preset selection.
 """
 
 from dotenv import load_dotenv
@@ -38,7 +38,6 @@ class Config:
     MAX_LEVERAGE: int = 10
     RISK_PER_TRADE: float = 0.04
     MAX_POSITIONS: int = 3
-    STRATEGY_MODE: str = "balanced"
     
     PAPER_TRADE: bool = field(default_factory=lambda: os.getenv("PAPER_TRADE", "true").lower() == "true")
     PAPER_BALANCE: float = 10000.0
@@ -106,39 +105,101 @@ class Position:
     explanation: str = ""
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  STRATEGY THRESHOLDS
+#  STRATEGY DEFINITIONS
 # ══════════════════════════════════════════════════════════════════════════════
 
-STRATEGY_THRESHOLDS = {
-    "conservative": {
-        "trend_rsi_pullback": 40,
-        "trend_rsi_momentum_min": 55,
-        "trend_rsi_momentum_max": 65,
-        "mean_rev_rsi_oversold": 30,
-        "mean_rev_rsi_overbought": 70,
-        "min_confidence": 0.6,
-        "atr_sl_mult": 2.5,
-        "atr_tp_mult": 3.5,
+STRATEGIES = {
+    "apex_adaptive": {
+        "name": "APEX Adaptive",
+        "description": "Adapts to market regime automatically",
+        "style": "hybrid",
+        "hold_time": "varies",
+        "icon": "🔄",
+        "params": {
+            "trend_rsi_pullback": 50,
+            "trend_rsi_momentum_min": 50,
+            "trend_rsi_momentum_max": 70,
+            "mean_rev_rsi_oversold": 35,
+            "mean_rev_rsi_overbought": 65,
+            "min_confidence": 0.5,
+            "atr_sl_mult": 2.0,
+            "atr_tp_mult": 3.0,
+        },
     },
-    "balanced": {
-        "trend_rsi_pullback": 50,
-        "trend_rsi_momentum_min": 50,
-        "trend_rsi_momentum_max": 70,
-        "mean_rev_rsi_oversold": 35,
-        "mean_rev_rsi_overbought": 65,
-        "min_confidence": 0.5,
-        "atr_sl_mult": 2.0,
-        "atr_tp_mult": 3.0,
+    "momentum_rider": {
+        "name": "Momentum Rider",
+        "description": "Ride strong trends with RSI + MACD confirmation",
+        "style": "trend",
+        "hold_time": "hours-days",
+        "icon": "🚀",
+        "params": {
+            "rsi_min": 55,
+            "rsi_max": 75,
+            "require_macd_confirm": True,
+            "require_price_above_sma": True,
+            "min_confidence": 0.55,
+            "atr_sl_mult": 2.0,
+            "atr_tp_mult": 3.5,
+        },
     },
-    "aggressive": {
-        "trend_rsi_pullback": 55,
-        "trend_rsi_momentum_min": 45,
-        "trend_rsi_momentum_max": 75,
-        "mean_rev_rsi_oversold": 40,
-        "mean_rev_rsi_overbought": 60,
-        "min_confidence": 0.4,
-        "atr_sl_mult": 1.5,
-        "atr_tp_mult": 2.5,
+    "dip_hunter": {
+        "name": "Dip Hunter",
+        "description": "Buy oversold, sell overbought at Bollinger extremes",
+        "style": "mean_reversion",
+        "hold_time": "hours",
+        "icon": "🎯",
+        "params": {
+            "rsi_oversold": 30,
+            "rsi_overbought": 70,
+            "bb_penetration": True,
+            "min_confidence": 0.5,
+            "atr_sl_mult": 1.5,
+            "atr_tp_mult": 2.0,
+        },
+    },
+    "breakout_blitz": {
+        "name": "Breakout Blitz",
+        "description": "Catch range breakouts on high momentum",
+        "style": "breakout",
+        "hold_time": "hours-days",
+        "icon": "⚡",
+        "params": {
+            "lookback_periods": 20,
+            "rsi_min": 50,
+            "rsi_max": 75,
+            "min_confidence": 0.5,
+            "atr_sl_mult": 1.5,
+            "atr_tp_mult": 3.0,
+        },
+    },
+    "scalp_sniper": {
+        "name": "Scalp Sniper",
+        "description": "Quick trades on micro pullbacks, tight SL/TP",
+        "style": "scalping",
+        "hold_time": "minutes-hours",
+        "icon": "🎯",
+        "params": {
+            "rsi_oversold": 40,
+            "rsi_overbought": 60,
+            "min_confidence": 0.45,
+            "atr_sl_mult": 1.0,
+            "atr_tp_mult": 1.5,
+        },
+    },
+    "swing_king": {
+        "name": "Swing King",
+        "description": "Larger moves, wider stops, patient entries",
+        "style": "swing",
+        "hold_time": "days-weeks",
+        "icon": "👑",
+        "params": {
+            "rsi_oversold": 25,
+            "rsi_overbought": 75,
+            "require_trend_align": True,
+            "min_confidence": 0.6,
+            "atr_sl_mult": 3.0,
+            "atr_tp_mult": 5.0,
+        },
     },
 }
 
@@ -219,6 +280,7 @@ class MacroCalendar:
         self.events = [
             ("2025-01-29", "FOMC"), ("2025-03-19", "FOMC"), ("2025-05-07", "FOMC"),
             ("2025-06-18", "FOMC"), ("2025-07-30", "FOMC"), ("2025-09-17", "FOMC"),
+            ("2026-01-28", "FOMC"), ("2026-03-18", "FOMC"), ("2026-05-06", "FOMC"),
         ]
     
     def get_context(self) -> Tuple[MacroContext, Optional[str]]:
@@ -236,7 +298,7 @@ class MacroCalendar:
         return MacroContext.NONE, None
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  SIGNAL ENGINE WITH EXPLANATIONS
+#  SIGNAL ENGINE - MULTI-STRATEGY
 # ══════════════════════════════════════════════════════════════════════════════
 
 class SignalEngine:
@@ -244,11 +306,13 @@ class SignalEngine:
         self.regime_detector = RegimeDetector()
         self.macro_calendar = MacroCalendar()
     
-    def generate_signals(self, symbol: str, candles: List[Dict], strategy_mode: str = "balanced") -> Optional[Signal]:
+    def generate_signal(self, symbol: str, candles: List[Dict], strategy_id: str = "apex_adaptive") -> Optional[Signal]:
+        """Generate a signal using the specified strategy."""
         if len(candles) < 50:
             return None
         
-        thresholds = STRATEGY_THRESHOLDS.get(strategy_mode, STRATEGY_THRESHOLDS["balanced"])
+        strategy = STRATEGIES.get(strategy_id, STRATEGIES["apex_adaptive"])
+        params = strategy["params"]
         
         regime = self.regime_detector.detect(candles)
         macro_context, _ = self.macro_calendar.get_context()
@@ -256,6 +320,7 @@ class SignalEngine:
         if macro_context == MacroContext.FREEZE:
             return None
         
+        # Calculate indicators
         closes = np.array([c["close"] for c in candles])
         highs = np.array([c["high"] for c in candles])
         lows = np.array([c["low"] for c in candles])
@@ -267,134 +332,133 @@ class SignalEngine:
         ema_12 = self._calculate_ema(closes, 12)
         ema_26 = self._calculate_ema(closes, 26)
         macd = ema_12 - ema_26
+        macd_signal = self._calculate_ema(np.array([ema_12 - ema_26]), 9)
         bb_upper, bb_lower, bb_mid = self._calculate_bollinger(closes)
         atr = self._calculate_atr(highs, lows, closes)
         
+        # Route to strategy-specific logic
+        if strategy_id == "apex_adaptive":
+            return self._strategy_apex_adaptive(symbol, candles, params, regime, macro_context, 
+                                                 current_price, rsi, sma_20, sma_50, macd, bb_upper, bb_lower, bb_mid, atr, highs, lows)
+        elif strategy_id == "momentum_rider":
+            return self._strategy_momentum_rider(symbol, params, regime, macro_context,
+                                                  current_price, rsi, sma_20, sma_50, macd, atr)
+        elif strategy_id == "dip_hunter":
+            return self._strategy_dip_hunter(symbol, params, regime, macro_context,
+                                              current_price, rsi, bb_upper, bb_lower, bb_mid, atr)
+        elif strategy_id == "breakout_blitz":
+            return self._strategy_breakout_blitz(symbol, params, regime, macro_context,
+                                                  current_price, rsi, highs, lows, atr)
+        elif strategy_id == "scalp_sniper":
+            return self._strategy_scalp_sniper(symbol, params, regime, macro_context,
+                                                current_price, rsi, sma_20, bb_upper, bb_lower, bb_mid, atr)
+        elif strategy_id == "swing_king":
+            return self._strategy_swing_king(symbol, params, regime, macro_context,
+                                              current_price, rsi, sma_20, sma_50, macd, atr)
+        
+        return None
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # STRATEGY: APEX ADAPTIVE (Original hybrid strategy)
+    # ═══════════════════════════════════════════════════════════════════════════
+    def _strategy_apex_adaptive(self, symbol, candles, params, regime, macro_context,
+                                 current_price, rsi, sma_20, sma_50, macd, bb_upper, bb_lower, bb_mid, atr, highs, lows):
         signal = None
-        explanation = ""
         
         if regime == Regime.TRENDING_UP:
-            rsi_min = thresholds["trend_rsi_momentum_min"]
-            rsi_max = thresholds["trend_rsi_momentum_max"]
+            rsi_min = params["trend_rsi_momentum_min"]
+            rsi_max = params["trend_rsi_momentum_max"]
             
             if rsi_min < rsi < rsi_max and current_price > sma_20 > sma_50 and macd > 0:
                 confidence = min(0.8, 0.5 + (rsi - 50) / 100)
-                stop_loss = current_price - (thresholds["atr_sl_mult"] * atr)
-                take_profit = current_price + (thresholds["atr_tp_mult"] * atr)
+                stop_loss = current_price - (params["atr_sl_mult"] * atr)
+                take_profit = current_price + (params["atr_tp_mult"] * atr)
                 
                 explanation = (
-                    f"Strong uptrend detected. RSI at {rsi:.0f} shows momentum without being overbought. "
-                    f"Price (${current_price:,.0f}) is above both the 20-period (${sma_20:,.0f}) and 50-period (${sma_50:,.0f}) moving averages. "
-                    f"MACD is positive ({macd:.2f}), confirming bullish momentum. "
-                    f"Entering LONG with {confidence:.0%} confidence."
+                    f"🔄 APEX Adaptive: Strong uptrend detected. RSI at {rsi:.0f} shows momentum. "
+                    f"Price ${current_price:,.0f} above SMAs. MACD positive. LONG with {confidence:.0%} confidence."
                 )
                 
                 signal = Signal(
                     type=SignalType.LONG, symbol=symbol, confidence=confidence,
-                    strategy="MOMENTUM", entry_price=current_price,
+                    strategy="APEX_ADAPTIVE", entry_price=current_price,
                     stop_loss=stop_loss, take_profit=take_profit,
                     regime=regime, macro=macro_context,
                     explanation=explanation, rsi=rsi, macd=macd
                 )
             
-            elif rsi < thresholds["trend_rsi_pullback"] and current_price > sma_50:
-                confidence = min(0.75, 0.4 + (thresholds["trend_rsi_pullback"] - rsi) / 100)
-                stop_loss = current_price - (thresholds["atr_sl_mult"] * atr)
-                take_profit = current_price + (thresholds["atr_tp_mult"] * atr)
+            elif rsi < params["trend_rsi_pullback"] and current_price > sma_50:
+                confidence = min(0.75, 0.4 + (params["trend_rsi_pullback"] - rsi) / 100)
+                stop_loss = current_price - (params["atr_sl_mult"] * atr)
+                take_profit = current_price + (params["atr_tp_mult"] * atr)
                 
                 explanation = (
-                    f"Pullback opportunity in uptrend. RSI dropped to {rsi:.0f}, indicating a temporary dip. "
-                    f"Price (${current_price:,.0f}) remains above the 50-period trend (${sma_50:,.0f}), so the overall uptrend is intact. "
+                    f"🔄 APEX Adaptive: Pullback in uptrend. RSI dropped to {rsi:.0f}. "
                     f"Buying the dip with {confidence:.0%} confidence."
                 )
                 
                 signal = Signal(
                     type=SignalType.LONG, symbol=symbol, confidence=confidence,
-                    strategy="TREND_PULLBACK", entry_price=current_price,
+                    strategy="APEX_ADAPTIVE", entry_price=current_price,
                     stop_loss=stop_loss, take_profit=take_profit,
                     regime=regime, macro=macro_context,
                     explanation=explanation, rsi=rsi, macd=macd
                 )
         
         elif regime == Regime.TRENDING_DOWN:
-            rsi_min = 100 - thresholds["trend_rsi_momentum_max"]
-            rsi_max = 100 - thresholds["trend_rsi_momentum_min"]
+            rsi_min = 100 - params["trend_rsi_momentum_max"]
+            rsi_max = 100 - params["trend_rsi_momentum_min"]
             
             if rsi_min < rsi < rsi_max and current_price < sma_20 < sma_50 and macd < 0:
                 confidence = min(0.8, 0.5 + (50 - rsi) / 100)
-                stop_loss = current_price + (thresholds["atr_sl_mult"] * atr)
-                take_profit = current_price - (thresholds["atr_tp_mult"] * atr)
+                stop_loss = current_price + (params["atr_sl_mult"] * atr)
+                take_profit = current_price - (params["atr_tp_mult"] * atr)
                 
                 explanation = (
-                    f"Strong downtrend detected. RSI at {rsi:.0f} shows selling pressure without being oversold. "
-                    f"Price (${current_price:,.0f}) is below both moving averages. "
-                    f"MACD is negative ({macd:.2f}), confirming bearish momentum. "
-                    f"Entering SHORT with {confidence:.0%} confidence."
+                    f"🔄 APEX Adaptive: Strong downtrend. RSI at {rsi:.0f}. "
+                    f"SHORT with {confidence:.0%} confidence."
                 )
                 
                 signal = Signal(
                     type=SignalType.SHORT, symbol=symbol, confidence=confidence,
-                    strategy="MOMENTUM", entry_price=current_price,
-                    stop_loss=stop_loss, take_profit=take_profit,
-                    regime=regime, macro=macro_context,
-                    explanation=explanation, rsi=rsi, macd=macd
-                )
-            
-            elif rsi > (100 - thresholds["trend_rsi_pullback"]) and current_price < sma_50:
-                confidence = min(0.75, 0.4 + (rsi - 50) / 100)
-                stop_loss = current_price + (thresholds["atr_sl_mult"] * atr)
-                take_profit = current_price - (thresholds["atr_tp_mult"] * atr)
-                
-                explanation = (
-                    f"Rally in downtrend - shorting the bounce. RSI rose to {rsi:.0f}, but price (${current_price:,.0f}) "
-                    f"is still below the 50-period trend (${sma_50:,.0f}). The downtrend should resume. "
-                    f"Entering SHORT with {confidence:.0%} confidence."
-                )
-                
-                signal = Signal(
-                    type=SignalType.SHORT, symbol=symbol, confidence=confidence,
-                    strategy="TREND_PULLBACK", entry_price=current_price,
+                    strategy="APEX_ADAPTIVE", entry_price=current_price,
                     stop_loss=stop_loss, take_profit=take_profit,
                     regime=regime, macro=macro_context,
                     explanation=explanation, rsi=rsi, macd=macd
                 )
         
         elif regime == Regime.RANGING:
-            if current_price < bb_lower and rsi < thresholds["mean_rev_rsi_oversold"]:
-                confidence = min(0.7, 0.4 + (thresholds["mean_rev_rsi_oversold"] - rsi) / 50)
+            if current_price < bb_lower and rsi < params["mean_rev_rsi_oversold"]:
+                confidence = min(0.7, 0.4 + (params["mean_rev_rsi_oversold"] - rsi) / 50)
                 stop_loss = current_price - (1.5 * atr)
                 take_profit = bb_mid
                 
                 explanation = (
-                    f"Mean reversion opportunity. Market is ranging (no clear trend). "
-                    f"Price (${current_price:,.0f}) dropped below the lower Bollinger Band (${bb_lower:,.0f}), "
-                    f"and RSI is oversold at {rsi:.0f}. Expecting a bounce back to the middle band (${bb_mid:,.0f}). "
-                    f"Entering LONG with {confidence:.0%} confidence."
+                    f"🔄 APEX Adaptive: Mean reversion. Price below BB lower, RSI oversold at {rsi:.0f}. "
+                    f"LONG targeting middle band."
                 )
                 
                 signal = Signal(
                     type=SignalType.LONG, symbol=symbol, confidence=confidence,
-                    strategy="MEAN_REVERSION", entry_price=current_price,
+                    strategy="APEX_ADAPTIVE", entry_price=current_price,
                     stop_loss=stop_loss, take_profit=take_profit,
                     regime=regime, macro=macro_context,
                     explanation=explanation, rsi=rsi, macd=macd
                 )
             
-            elif current_price > bb_upper and rsi > thresholds["mean_rev_rsi_overbought"]:
-                confidence = min(0.7, 0.4 + (rsi - thresholds["mean_rev_rsi_overbought"]) / 50)
+            elif current_price > bb_upper and rsi > params["mean_rev_rsi_overbought"]:
+                confidence = min(0.7, 0.4 + (rsi - params["mean_rev_rsi_overbought"]) / 50)
                 stop_loss = current_price + (1.5 * atr)
                 take_profit = bb_mid
                 
                 explanation = (
-                    f"Mean reversion opportunity. Market is ranging. "
-                    f"Price (${current_price:,.0f}) spiked above the upper Bollinger Band (${bb_upper:,.0f}), "
-                    f"and RSI is overbought at {rsi:.0f}. Expecting a pullback to the middle band (${bb_mid:,.0f}). "
-                    f"Entering SHORT with {confidence:.0%} confidence."
+                    f"🔄 APEX Adaptive: Mean reversion. Price above BB upper, RSI overbought at {rsi:.0f}. "
+                    f"SHORT targeting middle band."
                 )
                 
                 signal = Signal(
                     type=SignalType.SHORT, symbol=symbol, confidence=confidence,
-                    strategy="MEAN_REVERSION", entry_price=current_price,
+                    strategy="APEX_ADAPTIVE", entry_price=current_price,
                     stop_loss=stop_loss, take_profit=take_profit,
                     regime=regime, macro=macro_context,
                     explanation=explanation, rsi=rsi, macd=macd
@@ -410,14 +474,13 @@ class SignalEngine:
                 take_profit = current_price + (2.5 * atr)
                 
                 explanation = (
-                    f"Bullish breakout! Price (${current_price:,.0f}) just broke above the 20-period high (${recent_high:,.0f}). "
-                    f"RSI at {rsi:.0f} confirms momentum without extreme overbought. "
-                    f"Riding the breakout LONG with {confidence:.0%} confidence."
+                    f"🔄 APEX Adaptive: Bullish breakout above ${recent_high:,.0f}. "
+                    f"LONG with {confidence:.0%} confidence."
                 )
                 
                 signal = Signal(
                     type=SignalType.LONG, symbol=symbol, confidence=confidence,
-                    strategy="BREAKOUT", entry_price=current_price,
+                    strategy="APEX_ADAPTIVE", entry_price=current_price,
                     stop_loss=stop_loss, take_profit=take_profit,
                     regime=regime, macro=macro_context,
                     explanation=explanation, rsi=rsi, macd=macd
@@ -429,28 +492,334 @@ class SignalEngine:
                 take_profit = current_price - (2.5 * atr)
                 
                 explanation = (
-                    f"Bearish breakout! Price (${current_price:,.0f}) broke below the 20-period low (${recent_low:,.0f}). "
-                    f"RSI at {rsi:.0f} shows selling pressure without extreme oversold. "
-                    f"Riding the breakdown SHORT with {confidence:.0%} confidence."
+                    f"🔄 APEX Adaptive: Bearish breakout below ${recent_low:,.0f}. "
+                    f"SHORT with {confidence:.0%} confidence."
                 )
                 
                 signal = Signal(
                     type=SignalType.SHORT, symbol=symbol, confidence=confidence,
-                    strategy="BREAKOUT", entry_price=current_price,
+                    strategy="APEX_ADAPTIVE", entry_price=current_price,
                     stop_loss=stop_loss, take_profit=take_profit,
                     regime=regime, macro=macro_context,
                     explanation=explanation, rsi=rsi, macd=macd
                 )
         
-        if signal and signal.confidence < thresholds["min_confidence"]:
+        if signal and signal.confidence < params["min_confidence"]:
             return None
         
         if signal and macro_context == MacroContext.CAUTION:
             signal.confidence *= 0.7
-            signal.explanation += " (Reduced position due to upcoming macro event.)"
+            signal.explanation += " (Reduced size: macro event upcoming)"
         
         return signal
     
+    # ═══════════════════════════════════════════════════════════════════════════
+    # STRATEGY: MOMENTUM RIDER
+    # ═══════════════════════════════════════════════════════════════════════════
+    def _strategy_momentum_rider(self, symbol, params, regime, macro_context,
+                                  current_price, rsi, sma_20, sma_50, macd, atr):
+        
+        # Only trade in trending markets
+        if regime not in [Regime.TRENDING_UP, Regime.TRENDING_DOWN]:
+            return None
+        
+        signal = None
+        
+        # LONG: Strong uptrend with momentum confirmation
+        if regime == Regime.TRENDING_UP:
+            if (params["rsi_min"] < rsi < params["rsi_max"] and 
+                current_price > sma_20 > sma_50 and 
+                macd > 0):
+                
+                confidence = min(0.85, 0.55 + (rsi - 50) / 100 + (0.1 if macd > 0 else 0))
+                stop_loss = current_price - (params["atr_sl_mult"] * atr)
+                take_profit = current_price + (params["atr_tp_mult"] * atr)
+                
+                explanation = (
+                    f"🚀 Momentum Rider: Strong uptrend confirmed. RSI {rsi:.0f} shows momentum. "
+                    f"Price above both SMAs, MACD positive ({macd:.2f}). Riding the trend LONG."
+                )
+                
+                signal = Signal(
+                    type=SignalType.LONG, symbol=symbol, confidence=confidence,
+                    strategy="MOMENTUM_RIDER", entry_price=current_price,
+                    stop_loss=stop_loss, take_profit=take_profit,
+                    regime=regime, macro=macro_context,
+                    explanation=explanation, rsi=rsi, macd=macd
+                )
+        
+        # SHORT: Strong downtrend with momentum confirmation
+        elif regime == Regime.TRENDING_DOWN:
+            rsi_inv_min = 100 - params["rsi_max"]
+            rsi_inv_max = 100 - params["rsi_min"]
+            
+            if (rsi_inv_min < rsi < rsi_inv_max and 
+                current_price < sma_20 < sma_50 and 
+                macd < 0):
+                
+                confidence = min(0.85, 0.55 + (50 - rsi) / 100 + (0.1 if macd < 0 else 0))
+                stop_loss = current_price + (params["atr_sl_mult"] * atr)
+                take_profit = current_price - (params["atr_tp_mult"] * atr)
+                
+                explanation = (
+                    f"🚀 Momentum Rider: Strong downtrend confirmed. RSI {rsi:.0f} shows selling pressure. "
+                    f"Price below both SMAs, MACD negative ({macd:.2f}). Riding the trend SHORT."
+                )
+                
+                signal = Signal(
+                    type=SignalType.SHORT, symbol=symbol, confidence=confidence,
+                    strategy="MOMENTUM_RIDER", entry_price=current_price,
+                    stop_loss=stop_loss, take_profit=take_profit,
+                    regime=regime, macro=macro_context,
+                    explanation=explanation, rsi=rsi, macd=macd
+                )
+        
+        if signal and signal.confidence < params["min_confidence"]:
+            return None
+        
+        return signal
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # STRATEGY: DIP HUNTER (Mean Reversion)
+    # ═══════════════════════════════════════════════════════════════════════════
+    def _strategy_dip_hunter(self, symbol, params, regime, macro_context,
+                              current_price, rsi, bb_upper, bb_lower, bb_mid, atr):
+        
+        # Best in ranging or mildly volatile markets
+        if regime == Regime.VOLATILE:
+            return None  # Too risky for mean reversion
+        
+        signal = None
+        
+        # LONG: Oversold at lower Bollinger Band
+        if rsi < params["rsi_oversold"] and current_price <= bb_lower:
+            confidence = min(0.75, 0.45 + (params["rsi_oversold"] - rsi) / 60)
+            stop_loss = current_price - (params["atr_sl_mult"] * atr)
+            take_profit = bb_mid  # Target middle band
+            
+            explanation = (
+                f"🎯 Dip Hunter: Oversold condition detected. RSI at {rsi:.0f}, price at lower BB. "
+                f"Buying the dip, targeting mean reversion to ${bb_mid:,.0f}."
+            )
+            
+            signal = Signal(
+                type=SignalType.LONG, symbol=symbol, confidence=confidence,
+                strategy="DIP_HUNTER", entry_price=current_price,
+                stop_loss=stop_loss, take_profit=take_profit,
+                regime=regime, macro=macro_context,
+                explanation=explanation, rsi=rsi, macd=0
+            )
+        
+        # SHORT: Overbought at upper Bollinger Band
+        elif rsi > params["rsi_overbought"] and current_price >= bb_upper:
+            confidence = min(0.75, 0.45 + (rsi - params["rsi_overbought"]) / 60)
+            stop_loss = current_price + (params["atr_sl_mult"] * atr)
+            take_profit = bb_mid  # Target middle band
+            
+            explanation = (
+                f"🎯 Dip Hunter: Overbought condition detected. RSI at {rsi:.0f}, price at upper BB. "
+                f"Fading the rip, targeting mean reversion to ${bb_mid:,.0f}."
+            )
+            
+            signal = Signal(
+                type=SignalType.SHORT, symbol=symbol, confidence=confidence,
+                strategy="DIP_HUNTER", entry_price=current_price,
+                stop_loss=stop_loss, take_profit=take_profit,
+                regime=regime, macro=macro_context,
+                explanation=explanation, rsi=rsi, macd=0
+            )
+        
+        if signal and signal.confidence < params["min_confidence"]:
+            return None
+        
+        return signal
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # STRATEGY: BREAKOUT BLITZ
+    # ═══════════════════════════════════════════════════════════════════════════
+    def _strategy_breakout_blitz(self, symbol, params, regime, macro_context,
+                                  current_price, rsi, highs, lows, atr):
+        
+        lookback = params["lookback_periods"]
+        recent_high = max(highs[-lookback:])
+        recent_low = min(lows[-lookback:])
+        
+        signal = None
+        
+        # LONG: Breakout above recent high
+        if current_price > recent_high and params["rsi_min"] < rsi < params["rsi_max"]:
+            # Higher confidence if breaking out with strong momentum
+            breakout_strength = (current_price - recent_high) / atr
+            confidence = min(0.8, 0.5 + breakout_strength * 0.1 + (rsi - 50) / 200)
+            
+            stop_loss = recent_high - (params["atr_sl_mult"] * atr)
+            take_profit = current_price + (params["atr_tp_mult"] * atr)
+            
+            explanation = (
+                f"⚡ Breakout Blitz: Price broke above {lookback}-period high of ${recent_high:,.0f}. "
+                f"RSI at {rsi:.0f} confirms momentum. Catching the breakout LONG."
+            )
+            
+            signal = Signal(
+                type=SignalType.LONG, symbol=symbol, confidence=confidence,
+                strategy="BREAKOUT_BLITZ", entry_price=current_price,
+                stop_loss=stop_loss, take_profit=take_profit,
+                regime=regime, macro=macro_context,
+                explanation=explanation, rsi=rsi, macd=0
+            )
+        
+        # SHORT: Breakdown below recent low
+        elif current_price < recent_low and (100 - params["rsi_max"]) < rsi < (100 - params["rsi_min"]):
+            breakdown_strength = (recent_low - current_price) / atr
+            confidence = min(0.8, 0.5 + breakdown_strength * 0.1 + (50 - rsi) / 200)
+            
+            stop_loss = recent_low + (params["atr_sl_mult"] * atr)
+            take_profit = current_price - (params["atr_tp_mult"] * atr)
+            
+            explanation = (
+                f"⚡ Breakout Blitz: Price broke below {lookback}-period low of ${recent_low:,.0f}. "
+                f"RSI at {rsi:.0f} confirms selling pressure. Catching the breakdown SHORT."
+            )
+            
+            signal = Signal(
+                type=SignalType.SHORT, symbol=symbol, confidence=confidence,
+                strategy="BREAKOUT_BLITZ", entry_price=current_price,
+                stop_loss=stop_loss, take_profit=take_profit,
+                regime=regime, macro=macro_context,
+                explanation=explanation, rsi=rsi, macd=0
+            )
+        
+        if signal and signal.confidence < params["min_confidence"]:
+            return None
+        
+        return signal
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # STRATEGY: SCALP SNIPER
+    # ═══════════════════════════════════════════════════════════════════════════
+    def _strategy_scalp_sniper(self, symbol, params, regime, macro_context,
+                                current_price, rsi, sma_20, bb_upper, bb_lower, bb_mid, atr):
+        
+        signal = None
+        
+        # Quick LONG: RSI oversold, price near lower BB
+        if rsi < params["rsi_oversold"]:
+            bb_position = (current_price - bb_lower) / (bb_upper - bb_lower) if (bb_upper - bb_lower) > 0 else 0.5
+            
+            if bb_position < 0.3:  # Near lower band
+                confidence = min(0.7, 0.45 + (params["rsi_oversold"] - rsi) / 80)
+                stop_loss = current_price - (params["atr_sl_mult"] * atr)
+                take_profit = current_price + (params["atr_tp_mult"] * atr)
+                
+                explanation = (
+                    f"🎯 Scalp Sniper: Quick long setup. RSI oversold at {rsi:.0f}, "
+                    f"price near lower BB. Tight SL/TP for quick profit."
+                )
+                
+                signal = Signal(
+                    type=SignalType.LONG, symbol=symbol, confidence=confidence,
+                    strategy="SCALP_SNIPER", entry_price=current_price,
+                    stop_loss=stop_loss, take_profit=take_profit,
+                    regime=regime, macro=macro_context,
+                    explanation=explanation, rsi=rsi, macd=0
+                )
+        
+        # Quick SHORT: RSI overbought, price near upper BB
+        elif rsi > params["rsi_overbought"]:
+            bb_position = (current_price - bb_lower) / (bb_upper - bb_lower) if (bb_upper - bb_lower) > 0 else 0.5
+            
+            if bb_position > 0.7:  # Near upper band
+                confidence = min(0.7, 0.45 + (rsi - params["rsi_overbought"]) / 80)
+                stop_loss = current_price + (params["atr_sl_mult"] * atr)
+                take_profit = current_price - (params["atr_tp_mult"] * atr)
+                
+                explanation = (
+                    f"🎯 Scalp Sniper: Quick short setup. RSI overbought at {rsi:.0f}, "
+                    f"price near upper BB. Tight SL/TP for quick profit."
+                )
+                
+                signal = Signal(
+                    type=SignalType.SHORT, symbol=symbol, confidence=confidence,
+                    strategy="SCALP_SNIPER", entry_price=current_price,
+                    stop_loss=stop_loss, take_profit=take_profit,
+                    regime=regime, macro=macro_context,
+                    explanation=explanation, rsi=rsi, macd=0
+                )
+        
+        if signal and signal.confidence < params["min_confidence"]:
+            return None
+        
+        return signal
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # STRATEGY: SWING KING
+    # ═══════════════════════════════════════════════════════════════════════════
+    def _strategy_swing_king(self, symbol, params, regime, macro_context,
+                              current_price, rsi, sma_20, sma_50, macd, atr):
+        
+        signal = None
+        
+        # LONG: Deep oversold with trend alignment potential
+        if rsi < params["rsi_oversold"]:
+            # Check for potential trend reversal or continuation
+            trend_bias = "bullish" if sma_20 > sma_50 else "bearish"
+            
+            # More confident if already in uptrend (pullback), less if counter-trend
+            if trend_bias == "bullish" or rsi < 25:  # Deep oversold can trigger regardless
+                confidence = min(0.8, 0.5 + (params["rsi_oversold"] - rsi) / 50)
+                if trend_bias == "bullish":
+                    confidence += 0.1  # Bonus for trend alignment
+                
+                stop_loss = current_price - (params["atr_sl_mult"] * atr)
+                take_profit = current_price + (params["atr_tp_mult"] * atr)
+                
+                explanation = (
+                    f"👑 Swing King: Deep value entry. RSI at {rsi:.0f} signals extreme oversold. "
+                    f"Wide stops (${stop_loss:,.0f}), big target (${take_profit:,.0f}). "
+                    f"Trend bias: {trend_bias}. Patient swing LONG."
+                )
+                
+                signal = Signal(
+                    type=SignalType.LONG, symbol=symbol, confidence=confidence,
+                    strategy="SWING_KING", entry_price=current_price,
+                    stop_loss=stop_loss, take_profit=take_profit,
+                    regime=regime, macro=macro_context,
+                    explanation=explanation, rsi=rsi, macd=macd
+                )
+        
+        # SHORT: Extremely overbought with trend alignment
+        elif rsi > params["rsi_overbought"]:
+            trend_bias = "bearish" if sma_20 < sma_50 else "bullish"
+            
+            if trend_bias == "bearish" or rsi > 75:
+                confidence = min(0.8, 0.5 + (rsi - params["rsi_overbought"]) / 50)
+                if trend_bias == "bearish":
+                    confidence += 0.1
+                
+                stop_loss = current_price + (params["atr_sl_mult"] * atr)
+                take_profit = current_price - (params["atr_tp_mult"] * atr)
+                
+                explanation = (
+                    f"👑 Swing King: Extreme overbought. RSI at {rsi:.0f}. "
+                    f"Wide stops, big target. Trend bias: {trend_bias}. Patient swing SHORT."
+                )
+                
+                signal = Signal(
+                    type=SignalType.SHORT, symbol=symbol, confidence=confidence,
+                    strategy="SWING_KING", entry_price=current_price,
+                    stop_loss=stop_loss, take_profit=take_profit,
+                    regime=regime, macro=macro_context,
+                    explanation=explanation, rsi=rsi, macd=macd
+                )
+        
+        if signal and signal.confidence < params["min_confidence"]:
+            return None
+        
+        return signal
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SIGNAL RADAR (unchanged)
+    # ═══════════════════════════════════════════════════════════════════════════
     def scan_signal_strength(self, symbol: str, candles: List[Dict]) -> Dict:
         if len(candles) < 50:
             return {"symbol": symbol, "strength": 0, "direction": "NEUTRAL", "trigger": "—", "rsi": 0}
@@ -541,6 +910,9 @@ class SignalEngine:
             "regime": regime.value
         }
     
+    # ═══════════════════════════════════════════════════════════════════════════
+    # INDICATOR CALCULATIONS
+    # ═══════════════════════════════════════════════════════════════════════════
     def _calculate_rsi(self, closes, period=14):
         deltas = np.diff(closes)
         gains = np.where(deltas > 0, deltas, 0)
@@ -696,9 +1068,9 @@ class HyperliquidClient:
         del self.paper_positions[position.symbol]
         
         if reason == "TP":
-            close_explanation = f"Take profit hit! Price reached ${current_price:,.0f}, hitting the target. Profit: ${pnl:.2f}"
+            close_explanation = f"Take profit hit! Price reached ${current_price:,.0f}. Profit: ${pnl:.2f}"
         elif reason == "SL":
-            close_explanation = f"Stop loss triggered at ${current_price:,.0f}. Loss limited to ${abs(pnl):.2f} as planned."
+            close_explanation = f"Stop loss triggered at ${current_price:,.0f}. Loss limited to ${abs(pnl):.2f}."
         else:
             close_explanation = f"Position closed at ${current_price:,.0f}. P&L: ${pnl:.2f}"
         
@@ -869,7 +1241,7 @@ class BotSync:
         except:
             return False
     
-    def heartbeat(self, equity: float, positions: List[Dict], regime: str, macro: str, trade_fired: bool = False, signal_radar: List[Dict] = None):
+    def heartbeat(self, equity: float, positions: List[Dict], regime: str, macro: str, strategy: str = "", trade_fired: bool = False, signal_radar: List[Dict] = None):
         self._reset_daily()
         self._cycles_today += 1
         if trade_fired:
@@ -883,6 +1255,7 @@ class BotSync:
             "open_positions": len(positions),
             "regime": regime,
             "macro_context": macro,
+            "strategy": strategy,
             "cycles_today": self._cycles_today,
             "trades_today": self._trades_today,
             "pnl_today": round(total_unrealized + self._realized_pnl_today, 2),
@@ -930,7 +1303,7 @@ class APEXBot:
         self.risk_manager = RiskManager(max_positions=self.config.MAX_POSITIONS, max_leverage=self.config.MAX_LEVERAGE)
         self.sync = BotSync(self.config.APEX_APP_URL, self.config.APEX_USER_ID, self.config.BOT_API_SECRET)
         
-        self.strategy_mode = "balanced"
+        self.strategy_id = "apex_adaptive"
         self.risk_per_trade = 0.04
         self.auto_trading_enabled = True
         self._last_settings_fetch = 0
@@ -940,19 +1313,22 @@ class APEXBot:
         if now - self._last_settings_fetch > 60:
             settings = self.sync.fetch_settings()
             if settings:
-                self.strategy_mode = settings.get("strategy_mode", "balanced")
+                self.strategy_id = settings.get("strategy", "apex_adaptive")
                 self.risk_per_trade = settings.get("risk_per_trade", 0.04)
                 self.auto_trading_enabled = settings.get("enabled", True)
+                
+                strategy_name = STRATEGIES.get(self.strategy_id, {}).get("name", self.strategy_id)
                 status = "🟢 ON" if self.auto_trading_enabled else "🔴 OFF"
-                logger.info(f"📋 Settings: {self.strategy_mode} mode, {self.risk_per_trade*100:.0f}% risk, Auto: {status}")
+                logger.info(f"📋 Settings: {strategy_name}, {self.risk_per_trade*100:.0f}% risk, Auto: {status}")
             self._last_settings_fetch = now
     
     def start(self):
         logger.info("=" * 60)
-        logger.info("  APEX Trading Bot v5 - Persistent Positions")
+        logger.info("  APEX Trading Bot v6 - Multi-Strategy")
         logger.info("=" * 60)
         logger.info(f"  Mode: {'PAPER' if self.config.PAPER_TRADE else 'LIVE'}")
         logger.info(f"  Assets: {', '.join(self.config.ASSETS)}")
+        logger.info(f"  Strategies: {', '.join(STRATEGIES.keys())}")
         logger.info("=" * 60)
         
         if self.config.PAPER_TRADE:
@@ -1016,7 +1392,7 @@ class APEXBot:
         positions = self.client.get_positions()
         positions_with_pnl = self.client.get_positions_with_pnl()
         
-        # Scan all assets - ONLY if auto trading is enabled
+        # Scan all assets
         if self.auto_trading_enabled and self.risk_manager.check_risk_limits(positions, equity):
             for symbol in self.config.ASSETS:
                 candles = self.client.get_candles(symbol, self.config.TIMEFRAME)
@@ -1029,7 +1405,8 @@ class APEXBot:
                 if any(p.symbol == symbol for p in positions):
                     continue
                 
-                signal = self.signal_engine.generate_signals(symbol, candles, self.strategy_mode)
+                # Use selected strategy
+                signal = self.signal_engine.generate_signal(symbol, candles, self.strategy_id)
                 current_regime = self.signal_engine.regime_detector.detect(candles)
                 
                 if signal:
@@ -1056,17 +1433,19 @@ class APEXBot:
         self.sync.heartbeat(
             equity=equity, positions=positions_with_pnl,
             regime=current_regime.value, macro=macro_context.value,
+            strategy=self.strategy_id,
             trade_fired=trade_fired, signal_radar=signal_radar
         )
         
         # Log
+        strategy_name = STRATEGIES.get(self.strategy_id, {}).get("name", self.strategy_id)
         total_unrealized = sum(p.get("unrealized_pnl", 0) for p in positions_with_pnl)
         pos_str = ", ".join([f"{p['symbol']}({p['unrealized_pnl']:+.0f})" for p in positions_with_pnl])
         hottest = max(signal_radar, key=lambda x: x["strength"]) if signal_radar else None
         hot_str = f" | 🔥 {hottest['symbol']} {hottest['strength']}%" if hottest and hottest['strength'] >= 50 else ""
         auto_str = "" if self.auto_trading_enabled else " | ⏸️ PAUSED"
         
-        logger.info(f"${equity:.0f} | [{pos_str or 'none'}] | {self.strategy_mode.upper()}{hot_str}{auto_str}")
+        logger.info(f"${equity:.0f} | [{pos_str or 'none'}] | {strategy_name}{hot_str}{auto_str}")
 
 if __name__ == "__main__":
     bot = APEXBot()

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { AreaChart, Area, ResponsiveContainer } from 'recharts'
-import { RefreshCw, Zap, Clock, TrendingUp, TrendingDown, Minus, Settings, Shield, AlertTriangle, X, Info, ChevronDown, ChevronUp, Power } from 'lucide-react'
+import { RefreshCw, Zap, Clock, TrendingUp, TrendingDown, Minus, Settings, Shield, AlertTriangle, X, Info, ChevronDown, ChevronUp, Power, Target, Gauge, Crown, Crosshair, BarChart3 } from 'lucide-react'
 import type { Profile, BotConfig, Trade, BotHeartbeat, EquitySnapshot, UserStats } from '@/types'
 
 interface SignalScan {
@@ -22,12 +22,70 @@ interface Props {
   equityHistory: EquitySnapshot[]
   stats: UserStats | null
   botEnabled?: boolean
+  currentStrategy?: string
 }
 
 const STRATEGIES = [
-  { id: 'conservative', name: 'Conservative', icon: Shield, color: 'text-blue', bg: 'bg-blue/10 border-blue/30', desc: 'Stricter criteria, fewer trades' },
-  { id: 'balanced', name: 'Balanced', icon: TrendingUp, color: 'text-green', bg: 'bg-green/10 border-green/30', desc: 'Mix of momentum & pullback' },
-  { id: 'aggressive', name: 'Aggressive', icon: Zap, color: 'text-gold', bg: 'bg-gold/10 border-gold/30', desc: 'Looser criteria, more trades' },
+  { 
+    id: 'apex_adaptive', 
+    name: 'APEX Adaptive', 
+    icon: Zap, 
+    color: 'text-purple-400', 
+    bg: 'bg-purple-500/10 border-purple-500/30',
+    desc: 'Adapts to market regime automatically',
+    style: 'Hybrid',
+    holdTime: 'Varies'
+  },
+  { 
+    id: 'momentum_rider', 
+    name: 'Momentum Rider', 
+    icon: TrendingUp, 
+    color: 'text-green', 
+    bg: 'bg-green/10 border-green/30',
+    desc: 'Ride strong trends with RSI + MACD',
+    style: 'Trend',
+    holdTime: 'Hours-Days'
+  },
+  { 
+    id: 'dip_hunter', 
+    name: 'Dip Hunter', 
+    icon: Target, 
+    color: 'text-blue', 
+    bg: 'bg-blue/10 border-blue/30',
+    desc: 'Buy oversold, sell overbought',
+    style: 'Mean Reversion',
+    holdTime: 'Hours'
+  },
+  { 
+    id: 'breakout_blitz', 
+    name: 'Breakout Blitz', 
+    icon: Zap, 
+    color: 'text-yellow-400', 
+    bg: 'bg-yellow-500/10 border-yellow-500/30',
+    desc: 'Catch range breakouts on momentum',
+    style: 'Breakout',
+    holdTime: 'Hours-Days'
+  },
+  { 
+    id: 'scalp_sniper', 
+    name: 'Scalp Sniper', 
+    icon: Crosshair, 
+    color: 'text-red', 
+    bg: 'bg-red/10 border-red/30',
+    desc: 'Quick trades, tight SL/TP',
+    style: 'Scalping',
+    holdTime: 'Minutes-Hours'
+  },
+  { 
+    id: 'swing_king', 
+    name: 'Swing King', 
+    icon: Crown, 
+    color: 'text-gold', 
+    bg: 'bg-gold/10 border-gold/30',
+    desc: 'Larger moves, patient entries',
+    style: 'Swing',
+    holdTime: 'Days-Weeks'
+  },
 ]
 
 const RISK_LEVELS = [
@@ -69,23 +127,22 @@ function getSignalBgColor(strength: number): string {
   return 'bg-white/5 border-white/10'
 }
 
-export default function DashboardClient({ profile, config, trades, heartbeat, equityHistory, stats, botEnabled = true }: Props) {
+export default function DashboardClient({ profile, config, trades, heartbeat, equityHistory, stats, botEnabled = true, currentStrategy = 'apex_adaptive' }: Props) {
   const router = useRouter()
   const [lastRefresh, setLastRefresh] = useState(new Date())
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [expandedTrade, setExpandedTrade] = useState<string | null>(null)
   
-  const [strategy, setStrategy] = useState((config as any)?.strategy_mode || 'balanced')
+  const [strategy, setStrategy] = useState(currentStrategy)
   const [risk, setRisk] = useState((config as any)?.risk_level || 'medium')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
-  // Auto-trading toggle state
   const [autoTrading, setAutoTrading] = useState(botEnabled)
   const [togglingAutoTrading, setTogglingAutoTrading] = useState(false)
 
-  const initialStrategy = (config as any)?.strategy_mode || 'balanced'
+  const initialStrategy = currentStrategy
   const initialRisk = (config as any)?.risk_level || 'medium'
   const hasChanges = strategy !== initialStrategy || risk !== initialRisk
 
@@ -134,8 +191,8 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: 'a040d19d-f40e-44f7-9b90-dead9d9bcfeb',
-          strategy_mode: strategy,
           risk_level: risk,
+          strategy: strategy,
         }),
       })
       if (res.ok) {
@@ -165,7 +222,6 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
   const winRate = stats?.win_rate_pct ?? 0
   const totalTrades = stats?.total_trades ?? 0
 
-  // Get LIVE positions from heartbeat (not from trades table)
   const livePositions: any[] = (heartbeat as any)?.positions ?? []
   const openTrades = livePositions.map(p => ({
     id: p.id,
@@ -182,7 +238,7 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
     strategy: p.strategy,
     explanation: p.explanation,
     regime: p.regime,
-    created_at: new Date().toISOString(), // placeholder
+    created_at: new Date().toISOString(),
   }))
   
   const closedTrades = trades.filter(t => t.closed_at)
@@ -190,7 +246,7 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
 
   const signalRadar: SignalScan[] = (heartbeat as any)?.signal_radar ?? []
   
-  const currentStrat = STRATEGIES.find(s => s.id === strategy) || STRATEGIES[1]
+  const currentStrat = STRATEGIES.find(s => s.id === strategy) || STRATEGIES[0]
   const currentRisk = RISK_LEVELS.find(r => r.id === risk) || RISK_LEVELS[1]
 
   return (
@@ -206,7 +262,6 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Auto-Trading Toggle */}
           <button
             onClick={handleToggleAutoTrading}
             disabled={togglingAutoTrading}
@@ -250,7 +305,7 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
       {showSettings && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60" onClick={() => setShowSettings(false)} />
-          <div className="relative bg-surface border border-white/10 rounded-xl p-4 w-full max-w-md">
+          <div className="relative bg-surface border border-white/10 rounded-xl p-4 w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-bold">Bot Settings</h2>
               <button onClick={() => setShowSettings(false)} className="p-1 text-muted hover:text-white">
@@ -258,26 +313,32 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
               </button>
             </div>
 
+            {/* Strategy Selection */}
             <div className="mb-4">
-              <p className="text-xs text-muted uppercase tracking-wider font-medium mb-2">Strategy Mode</p>
-              <div className="space-y-2">
+              <p className="text-xs text-muted uppercase tracking-wider font-medium mb-2">Trading Strategy</p>
+              <div className="grid grid-cols-2 gap-2">
                 {STRATEGIES.map((s) => {
                   const Icon = s.icon
                   const isActive = strategy === s.id
                   return (
                     <button key={s.id} onClick={() => setStrategy(s.id)}
-                      className={`w-full p-3 rounded-lg border text-left transition-all ${isActive ? s.bg : 'bg-white/5 border-white/10 hover:border-white/20'}`}>
-                      <div className="flex items-center gap-2">
+                      className={`p-3 rounded-lg border text-left transition-all ${isActive ? s.bg : 'bg-white/5 border-white/10 hover:border-white/20'}`}>
+                      <div className="flex items-center gap-2 mb-1">
                         <Icon className={`w-4 h-4 ${isActive ? s.color : 'text-muted'}`} />
                         <span className={`text-sm font-medium ${isActive ? s.color : ''}`}>{s.name}</span>
                       </div>
-                      <p className="text-[10px] text-muted mt-1 ml-6">{s.desc}</p>
+                      <p className="text-[10px] text-muted mb-1">{s.desc}</p>
+                      <div className="flex items-center gap-2 text-[9px]">
+                        <span className="px-1.5 py-0.5 rounded bg-white/5">{s.style}</span>
+                        <span className="text-muted">{s.holdTime}</span>
+                      </div>
                     </button>
                   )
                 })}
               </div>
             </div>
 
+            {/* Risk Level */}
             <div className="mb-4">
               <p className="text-xs text-muted uppercase tracking-wider font-medium mb-2">Risk per Trade</p>
               <div className="grid grid-cols-3 gap-2">
@@ -294,10 +355,11 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
               </div>
             </div>
 
-            {strategy === 'aggressive' && risk === 'high' && (
+            {/* Warning for risky combos */}
+            {(strategy === 'scalp_sniper' && risk === 'high') && (
               <div className="flex items-center gap-2 p-2 rounded-lg bg-red/10 border border-red/20 mb-4">
                 <AlertTriangle className="w-4 h-4 text-red flex-shrink-0" />
-                <p className="text-xs text-red">High risk! Potential for significant drawdowns.</p>
+                <p className="text-xs text-red">Scalping + High risk = frequent large losses possible!</p>
               </div>
             )}
 
@@ -364,7 +426,7 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
         )}
       </div>
 
-      {/* Active Positions with Explainer */}
+      {/* Active Positions */}
       <div className={`rounded-lg border mb-4 ${openTrades.length > 0 ? 'border-green/30 bg-green/[0.02]' : 'border-white/10 bg-surface'}`}>
         <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -385,7 +447,6 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
               const explanation = (t as any).explanation
               const isExpanded = expandedTrade === t.id
               
-              // Calculate SL/TP progress
               const entry = t.entry_price || 0
               const sl = t.stop_loss || 0
               const tp = t.take_profit || 0
@@ -393,7 +454,7 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
               const tpDist = Math.abs(tp - entry)
               const totalRange = slDist + tpDist
               
-              let progress = 50 // neutral
+              let progress = 50
               let slPct = 0
               let tpPct = 0
               
@@ -458,9 +519,7 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
                       <span className="text-green">TP ${tp.toLocaleString()}</span>
                     </div>
                     <div className="h-1.5 bg-white/10 rounded-full overflow-hidden relative">
-                      {/* Center marker (entry) */}
                       <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white/30 z-10" />
-                      {/* Progress indicator */}
                       <div 
                         className={`absolute top-0 bottom-0 transition-all duration-300 ${progress >= 50 ? 'bg-green' : 'bg-red'}`}
                         style={{
@@ -481,16 +540,13 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
                             <>
                               <span className="text-white font-medium">Why this trade?</span>
                               <br />
-                              Opened {t.side} {t.symbol} using <span className="text-blue">{(t as any).strategy || 'MOMENTUM'}</span> strategy.
+                              Opened {t.side} {t.symbol} using <span className="text-blue">{(t as any).strategy || 'UNKNOWN'}</span> strategy.
                               {(t as any).regime && <> Market regime: <span className="text-green">{(t as any).regime}</span>.</>}
-                              {t.stop_loss && <> Stop loss at ${t.stop_loss.toLocaleString()}.</>}
-                              {t.take_profit && <> Target: ${t.take_profit.toLocaleString()}.</>}
                             </>
                           )}
                         </div>
                       </div>
                       
-                      {/* Manual Override Button */}
                       <button
                         onClick={async () => {
                           if (confirm(`Close ${t.symbol} position now at market price?`)) {
@@ -542,7 +598,7 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
         </div>
       )}
 
-      {/* Recent Closed Trades with Explainer */}
+      {/* Recent Closed Trades */}
       {closedTrades.length > 0 && (
         <div className="bg-surface rounded-lg p-3">
           <div className="flex items-center justify-between mb-2">
@@ -573,7 +629,6 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
                     </div>
                   </div>
                   
-                  {/* Trade Explainer for Closed Trade */}
                   {isExpanded && (
                     <div className="mt-2 p-2 rounded-lg bg-white/5 border border-white/10">
                       <div className="text-xs text-muted leading-relaxed space-y-1">
