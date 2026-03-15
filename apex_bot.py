@@ -1,23 +1,18 @@
 #!/usr/bin/env python3
 """
-APEX Trading Bot for Hyperliquid
-================================
-A multi-strategy perpetuals trading bot with regime detection,
-macro calendar awareness, and dashboard sync.
+APEX Trading Bot v3 - Configurable Strategies
+==============================================
+Fetches strategy_mode and risk_level from dashboard settings.
 
-Features:
-- Multi-strategy: Trend following + Mean reversion + Breakout
-- Regime detection: ADX, ATR ratio, Bollinger Band width
-- Macro calendar: Pauses during FOMC, CPI, NFP
-- Risk management: Dynamic position sizing, SL/TP
-- Dashboard sync: Real-time updates to APEX web dashboard
-- Live P&L tracking for open positions
+Strategy Modes:
+- conservative: Strict criteria, fewer trades
+- balanced: Mix of momentum and pullback
+- aggressive: Loose criteria, more trades
 
-Usage:
-  1. Set environment variables (see .env.example)
-  2. Run: python apex_bot.py
-
-Author: APEX / Built for Dan
+Risk Levels:
+- low: 2% per trade
+- medium: 4% per trade  
+- high: 6% per trade
 """
 
 from dotenv import load_dotenv
@@ -26,13 +21,11 @@ load_dotenv()
 import os
 import time
 import json
-import hmac
-import hashlib
 import logging
 import requests
 import uuid
 from datetime import datetime, timezone, timedelta
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Dict, List, Tuple
 from enum import Enum
 import numpy as np
@@ -43,39 +36,26 @@ import numpy as np
 
 @dataclass
 class Config:
-    # API Credentials
     HL_API_KEY: str = os.getenv("HL_API_KEY", "")
     HL_API_SECRET: str = os.getenv("HL_API_SECRET", "")
     HL_WALLET_ADDRESS: str = os.getenv("HL_WALLET_ADDRESS", "")
     
-    # Dashboard Sync
     APEX_APP_URL: str = os.getenv("APEX_APP_URL", "https://app.apexhl.trade")
     APEX_USER_ID: str = os.getenv("APEX_USER_ID", "a040d19d-f40e-44f7-9b90-dead9d9bcfeb")
     BOT_API_SECRET: str = os.getenv("BOT_API_SECRET", "")
     
-    # Trading Parameters
-    ASSETS: List[str] = None  # Set in __post_init__
+    ASSETS: List[str] = field(default_factory=lambda: ["BTC", "ETH", "SOL", "ARB", "DOGE"])
     TIMEFRAME: str = "1h"
     MAX_LEVERAGE: int = 10
-    RISK_PER_TRADE: float = 0.04  # 4% risk per trade
+    RISK_PER_TRADE: float = 0.04
     MAX_POSITIONS: int = 3
+    STRATEGY_MODE: str = "balanced"  # conservative, balanced, aggressive
     
-    # Paper Trading
-    PAPER_TRADE: bool = os.getenv("PAPER_TRADE", "true").lower() == "true"
+    PAPER_TRADE: bool = field(default_factory=lambda: os.getenv("PAPER_TRADE", "true").lower() == "true")
     PAPER_BALANCE: float = 10000.0
-    
-    # Bot Settings
-    CYCLE_INTERVAL: int = 60  # seconds between cycles
-    
-    def __post_init__(self):
-        if self.ASSETS is None:
-            self.ASSETS = ["BTC", "ETH", "SOL", "ARB", "DOGE"]
+    CYCLE_INTERVAL: int = 60
 
 CONFIG = Config()
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  LOGGING
-# ══════════════════════════════════════════════════════════════════════════════
 
 logging.basicConfig(
     level=logging.INFO,
@@ -97,20 +77,19 @@ class Regime(Enum):
 
 class MacroContext(Enum):
     NONE = "NONE"
-    CAUTION = "CAUTION"  # Approaching event
-    FREEZE = "FREEZE"    # During event - no new trades
-    FADE = "FADE"        # Post-event fade opportunity
+    CAUTION = "CAUTION"
+    FREEZE = "FREEZE"
+    REACTIVE = "REACTIVE"
 
 class SignalType(Enum):
     LONG = "LONG"
     SHORT = "SHORT"
-    NONE = "NONE"
 
 @dataclass
 class Signal:
     type: SignalType
     symbol: str
-    confidence: float  # 0-1
+    confidence: float
     strategy: str
     entry_price: float
     stop_loss: float
@@ -133,710 +112,542 @@ class Position:
     macro: str
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  MACRO CALENDAR
+#  STRATEGY THRESHOLDS BY MODE
 # ══════════════════════════════════════════════════════════════════════════════
 
-class MacroCalendar:
-    """
-    Tracks major economic events that impact crypto markets.
-    FOMC, CPI, NFP, Jackson Hole, etc.
-    """
-    
-    # 2024-2025 FOMC meeting dates (announcement typically 2pm ET)
-    FOMC_DATES = [
-        "2024-12-18", "2025-01-29", "2025-03-19", "2025-05-07",
-        "2025-06-18", "2025-07-30", "2025-09-17", "2025-11-05", "2025-12-17"
-    ]
-    
-    # CPI release dates (8:30am ET, usually 2nd week of month)
-    CPI_DATES = [
-        "2024-12-11", "2025-01-15", "2025-02-12", "2025-03-12",
-        "2025-04-10", "2025-05-13", "2025-06-11", "2025-07-11"
-    ]
-    
-    # NFP release dates (8:30am ET, first Friday of month)
-    NFP_DATES = [
-        "2024-12-06", "2025-01-10", "2025-02-07", "2025-03-07",
-        "2025-04-04", "2025-05-02", "2025-06-06", "2025-07-03"
-    ]
-    
-    def __init__(self):
-        self.events = self._build_event_list()
-    
-    def _build_event_list(self) -> List[Dict]:
-        events = []
-        for date in self.FOMC_DATES:
-            events.append({"date": date, "type": "FOMC", "freeze_hours": 4})
-        for date in self.CPI_DATES:
-            events.append({"date": date, "type": "CPI", "freeze_hours": 2})
-        for date in self.NFP_DATES:
-            events.append({"date": date, "type": "NFP", "freeze_hours": 2})
-        return events
-    
-    def get_context(self) -> Tuple[MacroContext, Optional[str]]:
-        """
-        Returns current macro context and upcoming event name.
-        """
-        now = datetime.now(timezone.utc)
-        
-        for event in self.events:
-            event_date = datetime.strptime(event["date"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            
-            # Check if we're in freeze window (event day, before/during announcement)
-            if event_date.date() == now.date():
-                # Freeze for the specified hours around the event
-                freeze_start = event_date.replace(hour=12, minute=0)  # Before announcement
-                freeze_end = event_date.replace(hour=12 + event["freeze_hours"], minute=0)
-                
-                if freeze_start <= now <= freeze_end:
-                    return MacroContext.FREEZE, event["type"]
-                elif now < freeze_start:
-                    return MacroContext.CAUTION, event["type"]
-                elif now > freeze_end and (now - freeze_end).seconds < 7200:  # 2 hours post
-                    return MacroContext.FADE, event["type"]
-            
-            # Check if event is tomorrow (caution)
-            elif event_date.date() == (now + timedelta(days=1)).date():
-                return MacroContext.CAUTION, event["type"]
-        
-        return MacroContext.NONE, None
+STRATEGY_THRESHOLDS = {
+    "conservative": {
+        "trend_rsi_pullback": 40,      # RSI must be below this for pullback entry
+        "trend_rsi_momentum_min": 55,  # RSI above this for momentum
+        "trend_rsi_momentum_max": 65,  # RSI below this for momentum
+        "mean_rev_rsi_oversold": 30,   # RSI for mean reversion long
+        "mean_rev_rsi_overbought": 70, # RSI for mean reversion short
+        "min_confidence": 0.6,         # Minimum confidence to enter
+        "atr_sl_mult": 2.5,            # ATR multiplier for stop loss
+        "atr_tp_mult": 3.5,            # ATR multiplier for take profit
+    },
+    "balanced": {
+        "trend_rsi_pullback": 50,
+        "trend_rsi_momentum_min": 50,
+        "trend_rsi_momentum_max": 70,
+        "mean_rev_rsi_oversold": 35,
+        "mean_rev_rsi_overbought": 65,
+        "min_confidence": 0.5,
+        "atr_sl_mult": 2.0,
+        "atr_tp_mult": 3.0,
+    },
+    "aggressive": {
+        "trend_rsi_pullback": 55,
+        "trend_rsi_momentum_min": 45,
+        "trend_rsi_momentum_max": 75,
+        "mean_rev_rsi_oversold": 40,
+        "mean_rev_rsi_overbought": 60,
+        "min_confidence": 0.4,
+        "atr_sl_mult": 1.5,
+        "atr_tp_mult": 2.5,
+    },
+}
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  MARKET INTELLIGENCE - REGIME DETECTION
+#  REGIME DETECTOR
 # ══════════════════════════════════════════════════════════════════════════════
 
 class RegimeDetector:
-    """
-    Detects market regime using multiple indicators:
-    - ADX for trend strength
-    - ATR ratio for volatility
-    - Bollinger Band width for squeeze detection
-    """
-    
-    def __init__(self, lookback: int = 14):
+    def __init__(self, lookback: int = 20):
         self.lookback = lookback
     
     def detect(self, candles: List[Dict]) -> Regime:
-        """
-        Analyze candles and return current regime.
-        Candles should be dicts with 'open', 'high', 'low', 'close', 'volume'.
-        """
-        if len(candles) < self.lookback + 10:
+        if len(candles) < 50:
             return Regime.UNKNOWN
         
         closes = np.array([c["close"] for c in candles])
         highs = np.array([c["high"] for c in candles])
         lows = np.array([c["low"] for c in candles])
         
-        # Calculate ADX
         adx = self._calculate_adx(highs, lows, closes)
-        
-        # Calculate ATR ratio (current ATR vs average)
-        atr = self._calculate_atr(highs, lows, closes)
-        atr_ratio = atr[-1] / np.mean(atr[-self.lookback:]) if np.mean(atr[-self.lookback:]) > 0 else 1
-        
-        # Calculate Bollinger Band width
+        atr_ratio = self._calculate_atr_ratio(highs, lows, closes)
         bb_width = self._calculate_bb_width(closes)
         
-        # Determine regime
+        sma_20 = np.mean(closes[-20:])
+        sma_50 = np.mean(closes[-50:])
+        trend_up = sma_20 > sma_50
+        
         if adx > 25:
-            # Strong trend
-            recent_change = (closes[-1] - closes[-self.lookback]) / closes[-self.lookback]
-            if recent_change > 0:
-                return Regime.TRENDING_UP
-            else:
-                return Regime.TRENDING_DOWN
-        elif atr_ratio > 1.5 or bb_width > 0.1:
+            return Regime.TRENDING_UP if trend_up else Regime.TRENDING_DOWN
+        elif bb_width > 0.06 or atr_ratio > 1.5:
             return Regime.VOLATILE
         else:
             return Regime.RANGING
     
-    def _calculate_adx(self, highs: np.ndarray, lows: np.ndarray, closes: np.ndarray) -> float:
-        """Calculate Average Directional Index."""
-        n = self.lookback
+    def _calculate_adx(self, highs, lows, closes, period=14):
+        n = len(closes)
+        if n < period + 1:
+            return 0
         
-        # True Range
-        tr = np.maximum(
-            highs[1:] - lows[1:],
-            np.maximum(
-                np.abs(highs[1:] - closes[:-1]),
-                np.abs(lows[1:] - closes[:-1])
-            )
-        )
+        tr = np.maximum(highs[1:] - lows[1:], 
+                       np.maximum(np.abs(highs[1:] - closes[:-1]),
+                                 np.abs(lows[1:] - closes[:-1])))
         
-        # +DM and -DM
-        plus_dm = np.where(
-            (highs[1:] - highs[:-1]) > (lows[:-1] - lows[1:]),
-            np.maximum(highs[1:] - highs[:-1], 0),
-            0
-        )
-        minus_dm = np.where(
-            (lows[:-1] - lows[1:]) > (highs[1:] - highs[:-1]),
-            np.maximum(lows[:-1] - lows[1:], 0),
-            0
-        )
+        plus_dm = np.where((highs[1:] - highs[:-1]) > (lows[:-1] - lows[1:]),
+                          np.maximum(highs[1:] - highs[:-1], 0), 0)
+        minus_dm = np.where((lows[:-1] - lows[1:]) > (highs[1:] - highs[:-1]),
+                           np.maximum(lows[:-1] - lows[1:], 0), 0)
         
-        # Smoothed values
-        atr = self._smooth(tr, n)
-        plus_di = 100 * self._smooth(plus_dm, n) / atr
-        minus_di = 100 * self._smooth(minus_dm, n) / atr
+        atr = self._smooth(tr, period)
+        plus_di = 100 * self._smooth(plus_dm, period) / (atr + 1e-10)
+        minus_di = 100 * self._smooth(minus_dm, period) / (atr + 1e-10)
         
-        # DX and ADX
         dx = 100 * np.abs(plus_di - minus_di) / (plus_di + minus_di + 1e-10)
-        adx = self._smooth(dx, n)
+        adx = self._smooth(dx, period)
         
         return adx[-1] if len(adx) > 0 else 0
     
-    def _calculate_atr(self, highs: np.ndarray, lows: np.ndarray, closes: np.ndarray) -> np.ndarray:
-        """Calculate Average True Range."""
-        tr = np.maximum(
-            highs[1:] - lows[1:],
-            np.maximum(
-                np.abs(highs[1:] - closes[:-1]),
-                np.abs(lows[1:] - closes[:-1])
-            )
-        )
-        return self._smooth(tr, self.lookback)
+    def _calculate_atr_ratio(self, highs, lows, closes, period=14):
+        tr = np.maximum(highs[1:] - lows[1:],
+                       np.maximum(np.abs(highs[1:] - closes[:-1]),
+                                 np.abs(lows[1:] - closes[:-1])))
+        
+        current_atr = np.mean(tr[-period:])
+        historical_atr = np.mean(tr[-period*3:-period]) if len(tr) > period * 3 else current_atr
+        
+        return current_atr / (historical_atr + 1e-10)
     
-    def _calculate_bb_width(self, closes: np.ndarray) -> float:
-        """Calculate Bollinger Band width as percentage."""
+    def _calculate_bb_width(self, closes):
         n = self.lookback
-        sma = np.convolve(closes, np.ones(n)/n, mode='valid')
-        std = np.array([np.std(closes[i:i+n]) for i in range(len(closes)-n+1)])
-        
-        upper = sma + 2 * std
-        lower = sma - 2 * std
-        width = (upper - lower) / sma
-        
-        return width[-1] if len(width) > 0 else 0
+        sma = np.mean(closes[-n:])
+        std = np.std(closes[-n:])
+        return (2 * std) / sma if sma > 0 else 0
     
-    def _smooth(self, data: np.ndarray, period: int) -> np.ndarray:
-        """Wilder's smoothing method."""
+    def _smooth(self, data, period):
         result = np.zeros_like(data, dtype=float)
+        if len(data) < period:
+            return result
         result[period-1] = np.mean(data[:period])
         for i in range(period, len(data)):
             result[i] = (result[i-1] * (period-1) + data[i]) / period
         return result[period-1:]
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  SIGNAL ENGINE - MULTI-STRATEGY
+#  MACRO CALENDAR
+# ══════════════════════════════════════════════════════════════════════════════
+
+class MacroCalendar:
+    def __init__(self):
+        self.events = [
+            ("2025-01-29", "FOMC"), ("2025-03-19", "FOMC"), ("2025-05-07", "FOMC"),
+            ("2025-06-18", "FOMC"), ("2025-07-30", "FOMC"), ("2025-09-17", "FOMC"),
+        ]
+    
+    def get_context(self) -> Tuple[MacroContext, Optional[str]]:
+        now = datetime.now(timezone.utc)
+        
+        for date_str, event in self.events:
+            event_date = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            hours_until = (event_date - now).total_seconds() / 3600
+            
+            if 0 <= hours_until <= 4:
+                return MacroContext.FREEZE, f"{event} in {hours_until:.1f}h"
+            elif 4 < hours_until <= 24:
+                return MacroContext.CAUTION, f"{event} tomorrow"
+        
+        return MacroContext.NONE, None
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  SIGNAL ENGINE - CONFIGURABLE BY STRATEGY MODE
 # ══════════════════════════════════════════════════════════════════════════════
 
 class SignalEngine:
-    """
-    Multi-strategy signal generation:
-    1. Trend Following - ride momentum in trending regimes
-    2. Mean Reversion - fade extremes in ranging regimes
-    3. Breakout - enter on range breaks
-    """
-    
     def __init__(self):
         self.regime_detector = RegimeDetector()
         self.macro_calendar = MacroCalendar()
     
-    def generate_signals(self, symbol: str, candles: List[Dict]) -> Optional[Signal]:
-        """
-        Analyze market and generate trading signal if conditions are met.
-        """
+    def generate_signals(self, symbol: str, candles: List[Dict], strategy_mode: str = "balanced") -> Optional[Signal]:
         if len(candles) < 50:
             return None
         
-        # Get market context
-        regime = self.regime_detector.detect(candles)
-        macro_context, macro_event = self.macro_calendar.get_context()
+        thresholds = STRATEGY_THRESHOLDS.get(strategy_mode, STRATEGY_THRESHOLDS["balanced"])
         
-        # Don't generate signals during FREEZE
+        regime = self.regime_detector.detect(candles)
+        macro_context, _ = self.macro_calendar.get_context()
+        
         if macro_context == MacroContext.FREEZE:
-            logger.info(f"[{symbol}] Macro FREEZE active ({macro_event}) - no signals")
             return None
         
-        # Calculate indicators
         closes = np.array([c["close"] for c in candles])
         highs = np.array([c["high"] for c in candles])
         lows = np.array([c["low"] for c in candles])
-        
         current_price = closes[-1]
         
-        # RSI
         rsi = self._calculate_rsi(closes)
-        
-        # Moving averages
         sma_20 = np.mean(closes[-20:])
         sma_50 = np.mean(closes[-50:])
         ema_12 = self._calculate_ema(closes, 12)
         ema_26 = self._calculate_ema(closes, 26)
-        
-        # MACD
         macd = ema_12 - ema_26
-        signal_line = self._calculate_ema(np.array([macd]), 9) if len([macd]) >= 9 else macd
-        
-        # Bollinger Bands
         bb_upper, bb_lower, bb_mid = self._calculate_bollinger(closes)
-        
-        # ATR for stop loss calculation
-        atr = self._calculate_atr_simple(highs, lows, closes)
+        atr = self._calculate_atr(highs, lows, closes)
         
         signal = None
         
         # ═══════════════════════════════════════════════════════════════════
-        # STRATEGY 1: TREND FOLLOWING
+        # TRENDING UP
         # ═══════════════════════════════════════════════════════════════════
-        if regime in [Regime.TRENDING_UP, Regime.TRENDING_DOWN]:
-            if regime == Regime.TRENDING_UP:
-                # Long on pullback in uptrend
-                if rsi < 45 and current_price > sma_50 and current_price < sma_20:
-                    confidence = min(0.8, 0.5 + (50 - rsi) / 100)
-                    stop_loss = current_price - (2 * atr)
-                    take_profit = current_price + (3 * atr)
-                    
-                    signal = Signal(
-                        type=SignalType.LONG,
-                        symbol=symbol,
-                        confidence=confidence,
-                        strategy="TREND_PULLBACK",
-                        entry_price=current_price,
-                        stop_loss=stop_loss,
-                        take_profit=take_profit,
-                        regime=regime,
-                        macro=macro_context
-                    )
-            else:  # TRENDING_DOWN
-                # Short on rally in downtrend
-                if rsi > 55 and current_price < sma_50 and current_price > sma_20:
-                    confidence = min(0.8, 0.5 + (rsi - 50) / 100)
-                    stop_loss = current_price + (2 * atr)
-                    take_profit = current_price - (3 * atr)
-                    
-                    signal = Signal(
-                        type=SignalType.SHORT,
-                        symbol=symbol,
-                        confidence=confidence,
-                        strategy="TREND_PULLBACK",
-                        entry_price=current_price,
-                        stop_loss=stop_loss,
-                        take_profit=take_profit,
-                        regime=regime,
-                        macro=macro_context
-                    )
-        
-        # ═══════════════════════════════════════════════════════════════════
-        # STRATEGY 2: MEAN REVERSION
-        # ═══════════════════════════════════════════════════════════════════
-        elif regime == Regime.RANGING:
-            # Long at lower Bollinger Band
-            if current_price < bb_lower and rsi < 30:
-                confidence = min(0.75, 0.4 + (30 - rsi) / 50)
-                stop_loss = current_price - (1.5 * atr)
-                take_profit = bb_mid  # Target middle band
+        if regime == Regime.TRENDING_UP:
+            # MOMENTUM: Strong trend, RSI in range, MACD positive
+            rsi_min = thresholds["trend_rsi_momentum_min"]
+            rsi_max = thresholds["trend_rsi_momentum_max"]
+            
+            if rsi_min < rsi < rsi_max and current_price > sma_20 > sma_50 and macd > 0:
+                confidence = min(0.8, 0.5 + (rsi - 50) / 100)
+                stop_loss = current_price - (thresholds["atr_sl_mult"] * atr)
+                take_profit = current_price + (thresholds["atr_tp_mult"] * atr)
                 
                 signal = Signal(
-                    type=SignalType.LONG,
-                    symbol=symbol,
-                    confidence=confidence,
-                    strategy="MEAN_REVERSION",
-                    entry_price=current_price,
-                    stop_loss=stop_loss,
-                    take_profit=take_profit,
-                    regime=regime,
-                    macro=macro_context
+                    type=SignalType.LONG, symbol=symbol, confidence=confidence,
+                    strategy="MOMENTUM", entry_price=current_price,
+                    stop_loss=stop_loss, take_profit=take_profit,
+                    regime=regime, macro=macro_context
                 )
             
-            # Short at upper Bollinger Band
-            elif current_price > bb_upper and rsi > 70:
-                confidence = min(0.75, 0.4 + (rsi - 70) / 50)
+            # PULLBACK: RSI below threshold, above SMA50
+            elif rsi < thresholds["trend_rsi_pullback"] and current_price > sma_50:
+                confidence = min(0.75, 0.4 + (thresholds["trend_rsi_pullback"] - rsi) / 100)
+                stop_loss = current_price - (thresholds["atr_sl_mult"] * atr)
+                take_profit = current_price + (thresholds["atr_tp_mult"] * atr)
+                
+                signal = Signal(
+                    type=SignalType.LONG, symbol=symbol, confidence=confidence,
+                    strategy="TREND_PULLBACK", entry_price=current_price,
+                    stop_loss=stop_loss, take_profit=take_profit,
+                    regime=regime, macro=macro_context
+                )
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # TRENDING DOWN
+        # ═══════════════════════════════════════════════════════════════════
+        elif regime == Regime.TRENDING_DOWN:
+            rsi_min = 100 - thresholds["trend_rsi_momentum_max"]
+            rsi_max = 100 - thresholds["trend_rsi_momentum_min"]
+            
+            if rsi_min < rsi < rsi_max and current_price < sma_20 < sma_50 and macd < 0:
+                confidence = min(0.8, 0.5 + (50 - rsi) / 100)
+                stop_loss = current_price + (thresholds["atr_sl_mult"] * atr)
+                take_profit = current_price - (thresholds["atr_tp_mult"] * atr)
+                
+                signal = Signal(
+                    type=SignalType.SHORT, symbol=symbol, confidence=confidence,
+                    strategy="MOMENTUM", entry_price=current_price,
+                    stop_loss=stop_loss, take_profit=take_profit,
+                    regime=regime, macro=macro_context
+                )
+            
+            elif rsi > (100 - thresholds["trend_rsi_pullback"]) and current_price < sma_50:
+                confidence = min(0.75, 0.4 + (rsi - 50) / 100)
+                stop_loss = current_price + (thresholds["atr_sl_mult"] * atr)
+                take_profit = current_price - (thresholds["atr_tp_mult"] * atr)
+                
+                signal = Signal(
+                    type=SignalType.SHORT, symbol=symbol, confidence=confidence,
+                    strategy="TREND_PULLBACK", entry_price=current_price,
+                    stop_loss=stop_loss, take_profit=take_profit,
+                    regime=regime, macro=macro_context
+                )
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # RANGING - MEAN REVERSION
+        # ═══════════════════════════════════════════════════════════════════
+        elif regime == Regime.RANGING:
+            if current_price < bb_lower and rsi < thresholds["mean_rev_rsi_oversold"]:
+                confidence = min(0.7, 0.4 + (thresholds["mean_rev_rsi_oversold"] - rsi) / 50)
+                stop_loss = current_price - (1.5 * atr)
+                take_profit = bb_mid
+                
+                signal = Signal(
+                    type=SignalType.LONG, symbol=symbol, confidence=confidence,
+                    strategy="MEAN_REVERSION", entry_price=current_price,
+                    stop_loss=stop_loss, take_profit=take_profit,
+                    regime=regime, macro=macro_context
+                )
+            
+            elif current_price > bb_upper and rsi > thresholds["mean_rev_rsi_overbought"]:
+                confidence = min(0.7, 0.4 + (rsi - thresholds["mean_rev_rsi_overbought"]) / 50)
                 stop_loss = current_price + (1.5 * atr)
                 take_profit = bb_mid
                 
                 signal = Signal(
-                    type=SignalType.SHORT,
-                    symbol=symbol,
-                    confidence=confidence,
-                    strategy="MEAN_REVERSION",
-                    entry_price=current_price,
-                    stop_loss=stop_loss,
-                    take_profit=take_profit,
-                    regime=regime,
-                    macro=macro_context
+                    type=SignalType.SHORT, symbol=symbol, confidence=confidence,
+                    strategy="MEAN_REVERSION", entry_price=current_price,
+                    stop_loss=stop_loss, take_profit=take_profit,
+                    regime=regime, macro=macro_context
                 )
         
         # ═══════════════════════════════════════════════════════════════════
-        # STRATEGY 3: BREAKOUT
+        # VOLATILE - BREAKOUT
         # ═══════════════════════════════════════════════════════════════════
         elif regime == Regime.VOLATILE:
-            # Recent high/low breakout
             recent_high = max(highs[-20:])
             recent_low = min(lows[-20:])
             
-            # Bullish breakout
-            if current_price > recent_high and rsi > 50 and rsi < 70:
-                confidence = min(0.7, 0.5 + (rsi - 50) / 100)
-                stop_loss = recent_high - atr  # Below breakout level
+            if current_price > recent_high and 50 < rsi < 75:
+                confidence = min(0.65, 0.4 + (rsi - 50) / 100)
+                stop_loss = recent_high - atr
                 take_profit = current_price + (2.5 * atr)
                 
                 signal = Signal(
-                    type=SignalType.LONG,
-                    symbol=symbol,
-                    confidence=confidence,
-                    strategy="BREAKOUT",
-                    entry_price=current_price,
-                    stop_loss=stop_loss,
-                    take_profit=take_profit,
-                    regime=regime,
-                    macro=macro_context
+                    type=SignalType.LONG, symbol=symbol, confidence=confidence,
+                    strategy="BREAKOUT", entry_price=current_price,
+                    stop_loss=stop_loss, take_profit=take_profit,
+                    regime=regime, macro=macro_context
                 )
             
-            # Bearish breakout
-            elif current_price < recent_low and rsi < 50 and rsi > 30:
-                confidence = min(0.7, 0.5 + (50 - rsi) / 100)
+            elif current_price < recent_low and 25 < rsi < 50:
+                confidence = min(0.65, 0.4 + (50 - rsi) / 100)
                 stop_loss = recent_low + atr
                 take_profit = current_price - (2.5 * atr)
                 
                 signal = Signal(
-                    type=SignalType.SHORT,
-                    symbol=symbol,
-                    confidence=confidence,
-                    strategy="BREAKOUT",
-                    entry_price=current_price,
-                    stop_loss=stop_loss,
-                    take_profit=take_profit,
-                    regime=regime,
-                    macro=macro_context
+                    type=SignalType.SHORT, symbol=symbol, confidence=confidence,
+                    strategy="BREAKOUT", entry_price=current_price,
+                    stop_loss=stop_loss, take_profit=take_profit,
+                    regime=regime, macro=macro_context
                 )
         
-        # Reduce confidence during CAUTION macro context
+        # Apply minimum confidence filter
+        if signal and signal.confidence < thresholds["min_confidence"]:
+            return None
+        
         if signal and macro_context == MacroContext.CAUTION:
             signal.confidence *= 0.7
-            logger.info(f"[{symbol}] Macro CAUTION - reduced confidence")
         
         return signal
     
-    def _calculate_rsi(self, closes: np.ndarray, period: int = 14) -> float:
-        """Calculate Relative Strength Index."""
+    def scan_signal_strength(self, symbol: str, candles: List[Dict]) -> Dict:
+        """Calculate proximity to trade signal (0-100%)."""
+        if len(candles) < 50:
+            return {"symbol": symbol, "strength": 0, "direction": "NEUTRAL", "trigger": "—", "rsi": 0}
+        
+        regime = self.regime_detector.detect(candles)
+        closes = np.array([c["close"] for c in candles])
+        highs = np.array([c["high"] for c in candles])
+        lows = np.array([c["low"] for c in candles])
+        current_price = closes[-1]
+        
+        rsi = self._calculate_rsi(closes)
+        sma_20 = np.mean(closes[-20:])
+        sma_50 = np.mean(closes[-50:])
+        ema_12 = self._calculate_ema(closes, 12)
+        ema_26 = self._calculate_ema(closes, 26)
+        macd = ema_12 - ema_26
+        bb_upper, bb_lower, _ = self._calculate_bollinger(closes)
+        
+        strength = 0
+        direction = "NEUTRAL"
+        trigger = "—"
+        
+        if regime == Regime.TRENDING_UP:
+            if current_price > sma_20 > sma_50 and macd > 0:
+                if 50 < rsi < 70:
+                    strength = 70 + int((rsi - 50) / 20 * 30)
+                else:
+                    strength = max(0, 70 - abs(rsi - 60) * 2)
+                trigger = "MOMENTUM"
+            elif rsi < 50 and current_price > sma_50:
+                strength = int(50 + (50 - rsi))
+                trigger = "PULLBACK"
+            else:
+                strength = 20
+            direction = "LONG"
+        
+        elif regime == Regime.TRENDING_DOWN:
+            if current_price < sma_20 < sma_50 and macd < 0:
+                if 30 < rsi < 50:
+                    strength = 70 + int((50 - rsi) / 20 * 30)
+                else:
+                    strength = max(0, 70 - abs(rsi - 40) * 2)
+                trigger = "MOMENTUM"
+            elif rsi > 50 and current_price < sma_50:
+                strength = int(50 + (rsi - 50))
+                trigger = "PULLBACK"
+            else:
+                strength = 20
+            direction = "SHORT"
+        
+        elif regime == Regime.RANGING:
+            bb_range = bb_upper - bb_lower
+            bb_pos = (current_price - bb_lower) / bb_range if bb_range > 0 else 0.5
+            
+            if bb_pos < 0.3 and rsi < 40:
+                strength = int(60 + (0.3 - bb_pos) * 100)
+                direction = "LONG"
+            elif bb_pos > 0.7 and rsi > 60:
+                strength = int(60 + (bb_pos - 0.7) * 100)
+                direction = "SHORT"
+            else:
+                strength = int(30 + abs(bb_pos - 0.5) * 60)
+                direction = "LONG" if bb_pos < 0.5 else "SHORT"
+            trigger = "MEAN_REV"
+        
+        elif regime == Regime.VOLATILE:
+            recent_high = max(highs[-20:])
+            recent_low = min(lows[-20:])
+            range_size = recent_high - recent_low
+            
+            dist_high = (recent_high - current_price) / range_size if range_size > 0 else 1
+            dist_low = (current_price - recent_low) / range_size if range_size > 0 else 1
+            
+            if dist_high < dist_low:
+                strength = int((1 - dist_high) * 100)
+                direction = "LONG"
+            else:
+                strength = int((1 - dist_low) * 100)
+                direction = "SHORT"
+            trigger = "BREAKOUT"
+        
+        return {
+            "symbol": symbol,
+            "strength": min(100, max(0, strength)),
+            "direction": direction,
+            "trigger": trigger,
+            "rsi": round(rsi, 1),
+            "regime": regime.value
+        }
+    
+    def _calculate_rsi(self, closes, period=14):
         deltas = np.diff(closes)
         gains = np.where(deltas > 0, deltas, 0)
         losses = np.where(deltas < 0, -deltas, 0)
-        
         avg_gain = np.mean(gains[-period:])
         avg_loss = np.mean(losses[-period:])
-        
         if avg_loss == 0:
             return 100
-        
-        rs = avg_gain / avg_loss
-        return 100 - (100 / (1 + rs))
+        return 100 - (100 / (1 + avg_gain / avg_loss))
     
-    def _calculate_ema(self, data: np.ndarray, period: int) -> float:
-        """Calculate Exponential Moving Average."""
-        if len(data) < period:
-            return np.mean(data)
-        
-        multiplier = 2 / (period + 1)
-        ema = np.mean(data[:period])
-        
-        for price in data[period:]:
-            ema = (price * multiplier) + (ema * (1 - multiplier))
-        
+    def _calculate_ema(self, data, period):
+        mult = 2 / (period + 1)
+        ema = data[0]
+        for price in data[1:]:
+            ema = (price * mult) + (ema * (1 - mult))
         return ema
     
-    def _calculate_bollinger(self, closes: np.ndarray, period: int = 20, std_dev: int = 2) -> Tuple[float, float, float]:
-        """Calculate Bollinger Bands."""
+    def _calculate_bollinger(self, closes, period=20, std_dev=2):
         sma = np.mean(closes[-period:])
         std = np.std(closes[-period:])
-        
-        upper = sma + (std_dev * std)
-        lower = sma - (std_dev * std)
-        
-        return upper, lower, sma
+        return sma + std_dev * std, sma - std_dev * std, sma
     
-    def _calculate_atr_simple(self, highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int = 14) -> float:
-        """Calculate Average True Range."""
-        tr = np.maximum(
-            highs[-period:] - lows[-period:],
-            np.maximum(
-                np.abs(highs[-period:] - np.roll(closes, 1)[-period:]),
-                np.abs(lows[-period:] - np.roll(closes, 1)[-period:])
-            )
-        )
-        return np.mean(tr)
+    def _calculate_atr(self, highs, lows, closes, period=14):
+        tr = np.maximum(highs[1:] - lows[1:],
+                       np.maximum(np.abs(highs[1:] - closes[:-1]),
+                                 np.abs(lows[1:] - closes[:-1])))
+        return np.mean(tr[-period:])
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  RISK MANAGER
 # ══════════════════════════════════════════════════════════════════════════════
 
 class RiskManager:
-    """
-    Position sizing and risk management.
-    """
-    
-    def __init__(self, config: Config):
-        self.config = config
-    
-    def calculate_position_size(
-        self,
-        equity: float,
-        entry_price: float,
-        stop_loss: float,
-        confidence: float
-    ) -> Tuple[float, int]:
-        """
-        Calculate position size based on risk parameters.
-        Returns (size_in_usd, leverage).
-        """
-        # Risk amount (adjusted by confidence)
-        risk_amount = equity * self.config.RISK_PER_TRADE * confidence
-        
-        # Distance to stop loss
-        sl_distance = abs(entry_price - stop_loss)
-        sl_percentage = sl_distance / entry_price
-        
-        # Position size that risks the desired amount
-        position_size = risk_amount / sl_percentage
-        
-        # Calculate required leverage
-        leverage = min(
-            int(position_size / equity) + 1,
-            self.config.MAX_LEVERAGE
-        )
-        
-        # Adjust position size for max leverage
-        max_position = equity * leverage
-        position_size = min(position_size, max_position)
-        
-        return round(position_size, 2), leverage
+    def __init__(self, max_positions: int = 3, max_leverage: int = 10):
+        self.max_positions = max_positions
+        self.max_leverage = max_leverage
     
     def check_risk_limits(self, positions: List[Position], equity: float) -> bool:
-        """Check if we can open a new position."""
-        if len(positions) >= self.config.MAX_POSITIONS:
-            logger.warning("Max positions reached")
-            return False
+        return len(positions) < self.max_positions
+    
+    def calculate_position_size(self, equity: float, entry: float, stop_loss: float, confidence: float, risk_per_trade: float):
+        risk_amount = equity * risk_per_trade * confidence
+        price_risk = abs(entry - stop_loss) / entry
         
-        # Check total exposure
-        total_exposure = sum(p.size for p in positions)
-        if total_exposure > equity * self.config.MAX_LEVERAGE * 0.8:
-            logger.warning("Total exposure limit reached")
-            return False
+        if price_risk == 0:
+            return 0, 1
         
-        return True
+        position_value = risk_amount / price_risk
+        leverage = min(self.max_leverage, max(1, int(position_value / equity)))
+        size = min(position_value, equity * leverage * 0.9)
+        
+        return size, leverage
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  HYPERLIQUID API CLIENT
+#  HYPERLIQUID CLIENT
 # ══════════════════════════════════════════════════════════════════════════════
 
 class HyperliquidClient:
-    """
-    Hyperliquid API wrapper for trading operations.
-    Supports both paper trading and live trading.
-    """
-    
-    BASE_URL = "https://api.hyperliquid.xyz"
     INFO_URL = "https://api.hyperliquid.xyz/info"
     
-    def __init__(self, config: Config):
-        self.config = config
-        self.paper = config.PAPER_TRADE
-        self.paper_balance = config.PAPER_BALANCE
+    def __init__(self, paper: bool = True, paper_balance: float = 10000.0):
+        self.paper = paper
+        self.paper_balance = paper_balance
         self.paper_positions: Dict[str, Position] = {}
         self.session = requests.Session()
-        self._price_cache: Dict[str, float] = {}
-        self._cache_time: float = 0
+        self._price_cache = {}
+        self._candle_cache = {}
     
-    def get_candles(self, symbol: str, interval: str = "1h", limit: int = 100) -> List[Dict]:
-        """Fetch OHLCV candles from Hyperliquid."""
+    def get_candles(self, symbol: str, timeframe: str, limit: int = 100) -> List[Dict]:
         try:
             response = self.session.post(
                 self.INFO_URL,
-                json={
-                    "type": "candleSnapshot",
-                    "req": {
-                        "coin": symbol,
-                        "interval": interval,
-                        "startTime": int((datetime.now(timezone.utc) - timedelta(hours=limit)).timestamp() * 1000),
-                        "endTime": int(datetime.now(timezone.utc).timestamp() * 1000)
-                    }
-                },
+                json={"type": "candleSnapshot", "req": {"coin": symbol, "interval": timeframe, "startTime": int((datetime.now(timezone.utc) - timedelta(hours=limit)).timestamp() * 1000)}},
                 timeout=10
             )
-            
             if response.status_code == 200:
                 data = response.json()
-                candles = []
-                for c in data:
-                    candles.append({
-                        "timestamp": c["t"],
-                        "open": float(c["o"]),
-                        "high": float(c["h"]),
-                        "low": float(c["l"]),
-                        "close": float(c["c"]),
-                        "volume": float(c["v"])
-                    })
+                candles = [{"open": float(c["o"]), "high": float(c["h"]), "low": float(c["l"]), "close": float(c["c"]), "volume": float(c["v"]), "time": c["t"]} for c in data]
+                self._candle_cache[symbol] = candles
                 return candles
-            else:
-                logger.error(f"Failed to fetch candles: {response.status_code}")
-                return []
         except Exception as e:
-            logger.error(f"Error fetching candles: {e}")
-            return []
+            logger.error(f"Candles error {symbol}: {e}")
+        return self._candle_cache.get(symbol, [])
     
     def get_all_prices(self) -> Dict[str, float]:
-        """Get all mid prices, with caching."""
-        now = time.time()
-        if now - self._cache_time < 5:  # Cache for 5 seconds
-            return self._price_cache
-        
         try:
-            response = self.session.post(
-                self.INFO_URL,
-                json={"type": "allMids"},
-                timeout=10
-            )
-            
+            response = self.session.post(self.INFO_URL, json={"type": "allMids"}, timeout=10)
             if response.status_code == 200:
-                data = response.json()
-                self._price_cache = {k: float(v) for k, v in data.items()}
-                self._cache_time = now
-                return self._price_cache
-            return self._price_cache
-        except Exception as e:
-            logger.error(f"Error fetching prices: {e}")
-            return self._price_cache
+                self._price_cache = {k: float(v) for k, v in response.json().items()}
+        except:
+            pass
+        return self._price_cache
     
     def get_price(self, symbol: str) -> Optional[float]:
-        """Get current price for a symbol."""
-        prices = self.get_all_prices()
-        return prices.get(symbol)
+        return self.get_all_prices().get(symbol)
     
     def get_equity(self) -> float:
-        """Get account equity."""
         if self.paper:
-            # Calculate paper equity including unrealized P&L
-            unrealized_pnl = sum(
-                self._calculate_unrealized_pnl(p) 
-                for p in self.paper_positions.values()
-            )
-            return self.paper_balance + unrealized_pnl
-        
-        # Live trading - fetch from API
-        try:
-            response = self.session.post(
-                self.INFO_URL,
-                json={
-                    "type": "clearinghouseState",
-                    "user": self.config.HL_WALLET_ADDRESS
-                },
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                return float(data.get("marginSummary", {}).get("accountValue", 0))
-            return 0
-        except Exception as e:
-            logger.error(f"Error fetching equity: {e}")
-            return 0
+            unrealized = sum(self._calculate_unrealized_pnl(p) for p in self.paper_positions.values())
+            return self.paper_balance + unrealized
+        return 0
     
     def get_positions(self) -> List[Position]:
-        """Get open positions."""
-        if self.paper:
-            return list(self.paper_positions.values())
-        
-        # Live trading - fetch from API
-        try:
-            response = self.session.post(
-                self.INFO_URL,
-                json={
-                    "type": "clearinghouseState",
-                    "user": self.config.HL_WALLET_ADDRESS
-                },
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                positions = []
-                for p in data.get("assetPositions", []):
-                    pos = p.get("position", {})
-                    if float(pos.get("szi", 0)) != 0:
-                        positions.append(Position(
-                            id=str(uuid.uuid4()),
-                            symbol=pos.get("coin", ""),
-                            side="LONG" if float(pos.get("szi", 0)) > 0 else "SHORT",
-                            entry_price=float(pos.get("entryPx", 0)),
-                            size=abs(float(pos.get("szi", 0))),
-                            leverage=int(pos.get("leverage", {}).get("value", 1)),
-                            stop_loss=0,  # Not stored on-chain
-                            take_profit=0,
-                            entry_time=datetime.now(timezone.utc),
-                            regime="",
-                            macro=""
-                        ))
-                return positions
-            return []
-        except Exception as e:
-            logger.error(f"Error fetching positions: {e}")
-            return []
+        return list(self.paper_positions.values()) if self.paper else []
     
     def get_positions_with_pnl(self) -> List[Dict]:
-        """Get open positions with current unrealized P&L."""
-        positions = self.get_positions()
         result = []
-        for p in positions:
+        for p in self.get_positions():
             current_price = self.get_price(p.symbol)
-            unrealized_pnl = self._calculate_unrealized_pnl(p) if current_price else 0
-            pnl_pct = (unrealized_pnl / p.size * 100) if p.size > 0 else 0
-            
+            unrealized = self._calculate_unrealized_pnl(p) if current_price else 0
+            pnl_pct = (unrealized / p.size * 100) if p.size > 0 else 0
             result.append({
-                "id": p.id,
-                "symbol": p.symbol,
-                "side": p.side,
-                "entry_price": p.entry_price,
-                "current_price": current_price,
-                "size": p.size,
-                "unrealized_pnl": round(unrealized_pnl, 2),
-                "pnl_pct": round(pnl_pct, 2),
-                "leverage": p.leverage,
+                "id": p.id, "symbol": p.symbol, "side": p.side,
+                "entry_price": p.entry_price, "current_price": current_price,
+                "size": p.size, "unrealized_pnl": round(unrealized, 2),
+                "pnl_pct": round(pnl_pct, 2), "leverage": p.leverage,
+                "stop_loss": p.stop_loss, "take_profit": p.take_profit
             })
         return result
     
     def open_position(self, signal: Signal, size: float, leverage: int) -> Optional[Position]:
-        """Open a new position."""
-        if self.paper:
-            return self._paper_open(signal, size, leverage)
+        if not self.paper:
+            return None
         
-        # Live trading - implement actual order placement
-        logger.warning("Live trading not yet implemented - use paper mode")
-        return None
-    
-    def close_position(self, position: Position, reason: str = "MANUAL") -> Optional[Dict]:
-        """Close an existing position."""
-        if self.paper:
-            return self._paper_close(position, reason)
-        
-        # Live trading - implement actual order placement
-        logger.warning("Live trading not yet implemented - use paper mode")
-        return None
-    
-    def _paper_open(self, signal: Signal, size: float, leverage: int) -> Optional[Position]:
-        """Simulate opening a position in paper trading."""
         position = Position(
-            id=str(uuid.uuid4()),
-            symbol=signal.symbol,
-            side=signal.type.value,
-            entry_price=signal.entry_price,
-            size=size,
-            leverage=leverage,
-            stop_loss=signal.stop_loss,
-            take_profit=signal.take_profit,
+            id=str(uuid.uuid4()), symbol=signal.symbol, side=signal.type.value,
+            entry_price=signal.entry_price, size=size, leverage=leverage,
+            stop_loss=signal.stop_loss, take_profit=signal.take_profit,
             entry_time=datetime.now(timezone.utc),
-            regime=signal.regime.value,
-            macro=signal.macro.value
+            regime=signal.regime.value, macro=signal.macro.value
         )
-        
         self.paper_positions[signal.symbol] = position
-        logger.info(f"[PAPER] Opened {signal.type.value} {signal.symbol} @ ${signal.entry_price:.2f}")
+        logger.info(f"🚀 Opened {signal.type.value} {signal.symbol} @ ${signal.entry_price:.2f} | Size: ${size:.0f} | {signal.strategy}")
         return position
     
-    def _paper_close(self, position: Position, reason: str) -> Optional[Dict]:
-        """Simulate closing a position in paper trading."""
+    def close_position(self, position: Position, reason: str) -> Optional[Dict]:
         if position.symbol not in self.paper_positions:
             return None
         
@@ -844,48 +655,32 @@ class HyperliquidClient:
         if not current_price:
             return None
         
-        # Calculate P&L
         if position.side == "LONG":
             pnl = (current_price - position.entry_price) / position.entry_price * position.size
         else:
             pnl = (position.entry_price - current_price) / position.entry_price * position.size
         
-        # Update paper balance
         self.paper_balance += pnl
-        
-        # Remove position
         del self.paper_positions[position.symbol]
         
-        held_minutes = int((datetime.now(timezone.utc) - position.entry_time).total_seconds() / 60)
-        
-        result = {
-            "symbol": position.symbol,
-            "side": position.side,
-            "entry_price": position.entry_price,
-            "exit_price": current_price,
-            "size": position.size,
-            "pnl": pnl,
-            "pnl_pct": (pnl / position.size) * 100,
-            "reason": reason,
-            "held_minutes": held_minutes
+        logger.info(f"💰 Closed {position.symbol} | P&L: ${pnl:+.2f} | Reason: {reason}")
+        return {
+            "symbol": position.symbol, "side": position.side,
+            "entry_price": position.entry_price, "exit_price": current_price,
+            "size": position.size, "pnl": pnl,
+            "pnl_pct": (pnl / position.size) * 100, "reason": reason,
+            "held_minutes": int((datetime.now(timezone.utc) - position.entry_time).total_seconds() / 60)
         }
-        
-        logger.info(f"[PAPER] Closed {position.symbol} | P&L: ${pnl:.2f} ({result['pnl_pct']:.2f}%) | Reason: {reason}")
-        return result
     
     def _calculate_unrealized_pnl(self, position: Position) -> float:
-        """Calculate unrealized P&L for a position."""
         current_price = self.get_price(position.symbol)
         if not current_price:
             return 0
-        
         if position.side == "LONG":
             return (current_price - position.entry_price) / position.entry_price * position.size
-        else:
-            return (position.entry_price - current_price) / position.entry_price * position.size
+        return (position.entry_price - current_price) / position.entry_price * position.size
     
     def check_sl_tp(self, position: Position) -> Optional[str]:
-        """Check if position hit stop loss or take profit."""
         current_price = self.get_price(position.symbol)
         if not current_price:
             return None
@@ -900,7 +695,6 @@ class HyperliquidClient:
                 return "SL"
             if current_price <= position.take_profit:
                 return "TP"
-        
         return None
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -908,19 +702,17 @@ class HyperliquidClient:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class BotSync:
-    """Sync bot state to APEX web dashboard with live P&L tracking."""
-    
-    def __init__(self, config: Config):
-        self.config = config
+    def __init__(self, app_url: str, user_id: str, bot_secret: str):
+        self.app_url = app_url
+        self.user_id = user_id
         self.session = requests.Session()
         self.session.headers.update({
             "Content-Type": "application/json",
-            "x-bot-secret": config.BOT_API_SECRET,
+            "x-bot-secret": bot_secret,
         })
         self._cycles_today = 0
         self._trades_today = 0
         self._realized_pnl_today = 0.0
-        self._starting_equity = None
         self._day = datetime.now(timezone.utc).date()
     
     def _reset_daily(self):
@@ -929,92 +721,68 @@ class BotSync:
             self._cycles_today = 0
             self._trades_today = 0
             self._realized_pnl_today = 0.0
-            self._starting_equity = None
             self._day = today
     
     def _post(self, payload: dict) -> bool:
         try:
-            r = self.session.post(
-                f"{self.config.APEX_APP_URL}/api/bot/sync",
-                json={**payload, "user_id": self.config.APEX_USER_ID},
-                timeout=5,
-            )
+            r = self.session.post(f"{self.app_url}/api/bot/sync", json={**payload, "user_id": self.user_id}, timeout=5)
             return r.status_code == 200
-        except Exception as e:
-            logger.debug(f"Sync failed: {e}")
+        except:
             return False
     
-    def heartbeat(
-        self,
-        equity: float,
-        positions_with_pnl: List[Dict],
-        regime: str,
-        macro_context: str,
-        trade_fired: bool = False
-    ):
+    def fetch_settings(self) -> Dict:
+        """Fetch strategy/risk settings from dashboard."""
+        try:
+            r = self.session.get(f"{self.app_url}/api/bot/settings?user_id={self.user_id}", timeout=5)
+            if r.status_code == 200:
+                return r.json()
+        except Exception as e:
+            logger.debug(f"Settings fetch failed: {e}")
+        return {}
+    
+    def heartbeat(self, equity: float, positions: List[Dict], regime: str, macro: str, trade_fired: bool = False, signal_radar: List[Dict] = None):
         self._reset_daily()
         self._cycles_today += 1
         if trade_fired:
             self._trades_today += 1
         
-        # Track starting equity for the day
-        if self._starting_equity is None:
-            self._starting_equity = equity
-        
-        # Calculate total unrealized P&L from positions
-        total_unrealized_pnl = sum(p.get("unrealized_pnl", 0) for p in positions_with_pnl)
-        
-        # P&L today = unrealized + realized
-        pnl_today = total_unrealized_pnl + self._realized_pnl_today
+        total_unrealized = sum(p.get("unrealized_pnl", 0) for p in positions)
         
         self._post({
             "type": "heartbeat",
             "equity": equity,
-            "open_positions": len(positions_with_pnl),
+            "open_positions": len(positions),
             "regime": regime,
-            "macro_context": macro_context,
+            "macro_context": macro,
             "cycles_today": self._cycles_today,
             "trades_today": self._trades_today,
-            "pnl_today": round(pnl_today, 2),
-            "unrealized_pnl": round(total_unrealized_pnl, 2),
-            "positions": positions_with_pnl,  # Send position details with P&L
+            "pnl_today": round(total_unrealized + self._realized_pnl_today, 2),
+            "unrealized_pnl": round(total_unrealized, 2),
+            "positions": positions,
+            "signal_radar": signal_radar or [],
         })
     
-    def trade_signal(self, position: Position, confidence: float, net_score: float):
+    def trade_signal(self, position: Position, confidence: float, paper: bool):
         self._post({
             "type": "trade_signal",
-            "id": position.id,
-            "symbol": position.symbol,
-            "side": position.side,
-            "entry_price": position.entry_price,
-            "size": position.size,
-            "leverage": position.leverage,
-            "stop_loss": position.stop_loss,
-            "take_profit": position.take_profit,
-            "confidence": confidence,
-            "net_score": net_score,
-            "regime": position.regime,
-            "macro_context": position.macro,
-            "paper": self.config.PAPER_TRADE,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "id": position.id, "symbol": position.symbol, "side": position.side,
+            "entry_price": position.entry_price, "size": position.size,
+            "leverage": position.leverage, "stop_loss": position.stop_loss,
+            "take_profit": position.take_profit, "confidence": confidence,
+            "regime": position.regime, "macro_context": position.macro,
+            "paper": paper, "timestamp": datetime.now(timezone.utc).isoformat(),
         })
     
-    def trade_close(self, position: Position, result: Dict):
+    def trade_close(self, position: Position, result: Dict, paper: bool):
         self._realized_pnl_today += result["pnl"]
         self._post({
             "type": "trade_close",
-            "id": str(uuid.uuid4()),
-            "signal_id": position.id,
-            "symbol": result["symbol"],
-            "side": result["side"],
-            "entry_price": result["entry_price"],
-            "exit_price": result["exit_price"],
-            "size": result["size"],
-            "pnl": round(result["pnl"], 4),
-            "pnl_pct": round(result["pnl_pct"], 4),
-            "close_reason": result["reason"],
-            "held_minutes": result["held_minutes"],
-            "paper": self.config.PAPER_TRADE,
+            "id": str(uuid.uuid4()), "signal_id": position.id,
+            "symbol": result["symbol"], "side": result["side"],
+            "entry_price": result["entry_price"], "exit_price": result["exit_price"],
+            "size": result["size"], "pnl": round(result["pnl"], 4),
+            "pnl_pct": round(result["pnl_pct"], 4), "close_reason": result["reason"],
+            "held_minutes": result["held_minutes"], "paper": paper,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
 
@@ -1023,138 +791,114 @@ class BotSync:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class APEXBot:
-    """Main trading bot orchestrator."""
-    
     def __init__(self):
         self.config = CONFIG
-        self.client = HyperliquidClient(self.config)
+        self.client = HyperliquidClient(paper=self.config.PAPER_TRADE, paper_balance=self.config.PAPER_BALANCE)
         self.signal_engine = SignalEngine()
-        self.risk_manager = RiskManager(self.config)
-        self.sync = BotSync(self.config)
-        self.running = False
+        self.risk_manager = RiskManager(max_positions=self.config.MAX_POSITIONS, max_leverage=self.config.MAX_LEVERAGE)
+        self.sync = BotSync(self.config.APEX_APP_URL, self.config.APEX_USER_ID, self.config.BOT_API_SECRET)
+        
+        # Dynamic settings (fetched from dashboard)
+        self.strategy_mode = "balanced"
+        self.risk_per_trade = 0.04
+        self._last_settings_fetch = 0
+    
+    def fetch_settings(self):
+        """Fetch settings from dashboard every 5 minutes."""
+        now = time.time()
+        if now - self._last_settings_fetch > 300:  # 5 minutes
+            settings = self.sync.fetch_settings()
+            if settings:
+                self.strategy_mode = settings.get("strategy_mode", "balanced")
+                self.risk_per_trade = settings.get("risk_per_trade", 0.04)
+                logger.info(f"📋 Settings: {self.strategy_mode} mode, {self.risk_per_trade*100:.0f}% risk")
+            self._last_settings_fetch = now
     
     def start(self):
-        """Start the bot."""
         logger.info("=" * 60)
-        logger.info("  APEX Trading Bot Starting")
+        logger.info("  APEX Trading Bot v3 - Configurable Strategies")
         logger.info("=" * 60)
-        logger.info(f"  Mode: {'PAPER TRADING' if self.config.PAPER_TRADE else 'LIVE TRADING'}")
+        logger.info(f"  Mode: {'PAPER' if self.config.PAPER_TRADE else 'LIVE'}")
         logger.info(f"  Assets: {', '.join(self.config.ASSETS)}")
-        logger.info(f"  Timeframe: {self.config.TIMEFRAME}")
-        logger.info(f"  Max Leverage: {self.config.MAX_LEVERAGE}x")
-        logger.info(f"  Risk per Trade: {self.config.RISK_PER_TRADE * 100}%")
         logger.info("=" * 60)
         
-        self.running = True
-        
-        while self.running:
+        while True:
             try:
+                self.fetch_settings()
                 self.cycle()
                 time.sleep(self.config.CYCLE_INTERVAL)
             except KeyboardInterrupt:
                 logger.info("Shutting down...")
-                self.running = False
+                break
             except Exception as e:
                 logger.error(f"Cycle error: {e}")
                 time.sleep(10)
     
     def cycle(self):
-        """Run one bot cycle."""
         equity = self.client.get_equity()
         positions = self.client.get_positions()
         positions_with_pnl = self.client.get_positions_with_pnl()
         
-        # Get current regime and macro context for dashboard
         macro_context, _ = self.signal_engine.macro_calendar.get_context()
         current_regime = Regime.UNKNOWN
-        
         trade_fired = False
+        signal_radar = []
         
-        # ═══════════════════════════════════════════════════════════════════
-        # CHECK EXISTING POSITIONS FOR SL/TP
-        # ═══════════════════════════════════════════════════════════════════
+        # Check SL/TP
         for position in positions:
             close_reason = self.client.check_sl_tp(position)
             if close_reason:
                 result = self.client.close_position(position, close_reason)
                 if result:
-                    self.sync.trade_close(position, result)
+                    self.sync.trade_close(position, result, self.config.PAPER_TRADE)
         
-        # Refresh positions after closes
         positions = self.client.get_positions()
         positions_with_pnl = self.client.get_positions_with_pnl()
         
-        # ═══════════════════════════════════════════════════════════════════
-        # SCAN FOR NEW SIGNALS
-        # ═══════════════════════════════════════════════════════════════════
+        # Scan all assets
         if self.risk_manager.check_risk_limits(positions, equity):
             for symbol in self.config.ASSETS:
-                # Skip if already in position
-                if any(p.symbol == symbol for p in positions):
-                    continue
-                
-                # Fetch candles and generate signal
                 candles = self.client.get_candles(symbol, self.config.TIMEFRAME)
                 if not candles:
                     continue
                 
-                signal = self.signal_engine.generate_signals(symbol, candles)
+                # Signal radar
+                scan = self.signal_engine.scan_signal_strength(symbol, candles)
+                signal_radar.append(scan)
+                
+                # Skip if in position
+                if any(p.symbol == symbol for p in positions):
+                    continue
+                
+                # Generate signal using current strategy mode
+                signal = self.signal_engine.generate_signals(symbol, candles, self.strategy_mode)
                 current_regime = self.signal_engine.regime_detector.detect(candles)
                 
-                if signal and signal.confidence >= 0.5:
-                    # Calculate position size
+                if signal:
                     size, leverage = self.risk_manager.calculate_position_size(
-                        equity,
-                        signal.entry_price,
-                        signal.stop_loss,
-                        signal.confidence
+                        equity, signal.entry_price, signal.stop_loss, signal.confidence, self.risk_per_trade
                     )
                     
-                    # Open position
                     position = self.client.open_position(signal, size, leverage)
                     if position:
                         trade_fired = True
-                        self.sync.trade_signal(position, signal.confidence, signal.confidence)
-                        
-                        # Refresh positions with P&L after new trade
+                        self.sync.trade_signal(position, signal.confidence, self.config.PAPER_TRADE)
                         positions_with_pnl = self.client.get_positions_with_pnl()
-                        
-                        logger.info(
-                            f"[{symbol}] {signal.type.value} | "
-                            f"Strategy: {signal.strategy} | "
-                            f"Confidence: {signal.confidence:.2f} | "
-                            f"Size: ${size:.2f} | "
-                            f"Leverage: {leverage}x"
-                        )
         
-        # ═══════════════════════════════════════════════════════════════════
-        # SEND HEARTBEAT WITH LIVE P&L
-        # ═══════════════════════════════════════════════════════════════════
+        # Heartbeat
         self.sync.heartbeat(
-            equity=equity,
-            positions_with_pnl=positions_with_pnl,
-            regime=current_regime.value,
-            macro_context=macro_context.value,
-            trade_fired=trade_fired
+            equity=equity, positions=positions_with_pnl,
+            regime=current_regime.value, macro=macro_context.value,
+            trade_fired=trade_fired, signal_radar=signal_radar
         )
         
-        # Log status with P&L
+        # Log
         total_unrealized = sum(p.get("unrealized_pnl", 0) for p in positions_with_pnl)
-        positions_str = ", ".join([
-            f"{p['symbol']}:{p['side']}({p['unrealized_pnl']:+.2f})" 
-            for p in positions_with_pnl
-        ])
+        pos_str = ", ".join([f"{p['symbol']}({p['unrealized_pnl']:+.0f})" for p in positions_with_pnl])
+        hottest = max(signal_radar, key=lambda x: x["strength"]) if signal_radar else None
+        hot_str = f" | 🔥 {hottest['symbol']} {hottest['strength']}%" if hottest and hottest['strength'] >= 50 else ""
         
-        logger.info(
-            f"Cycle | Equity: ${equity:.2f} | "
-            f"Unrealized: ${total_unrealized:+.2f} | "
-            f"Positions: [{positions_str or 'none'}] | "
-            f"Regime: {current_regime.value}"
-        )
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  ENTRY POINT
-# ══════════════════════════════════════════════════════════════════════════════
+        logger.info(f"${equity:.0f} | Unreal: ${total_unrealized:+.0f} | [{pos_str or 'none'}] | {self.strategy_mode.upper()}{hot_str}")
 
 if __name__ == "__main__":
     bot = APEXBot()
