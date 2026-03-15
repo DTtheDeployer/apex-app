@@ -1,9 +1,9 @@
 export const dynamic = 'force-dynamic'
 
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/server'
 
 export default async function TradesPage() {
-  const supabase = createClient()
+  const supabase = createAdminClient()
   const userId = 'a040d19d-f40e-44f7-9b90-dead9d9bcfeb'
 
   const { data: trades } = await supabase
