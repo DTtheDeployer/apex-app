@@ -738,6 +738,30 @@ class HyperliquidClient:
             return (current_price - position.entry_price) / position.entry_price * position.size
         return (position.entry_price - current_price) / position.entry_price * position.size
     
+    def load_positions_from_db(self, positions_data: List[Dict]):
+        """Load positions from database on startup."""
+        for p in positions_data:
+            try:
+                position = Position(
+                    id=p["id"],
+                    symbol=p["symbol"],
+                    side=p["side"],
+                    entry_price=float(p["entry_price"]),
+                    size=float(p["size"]),
+                    leverage=int(p["leverage"]),
+                    stop_loss=float(p["stop_loss"]) if p.get("stop_loss") else 0,
+                    take_profit=float(p["take_profit"]) if p.get("take_profit") else 0,
+                    entry_time=datetime.fromisoformat(p["entry_time"].replace("Z", "+00:00")) if isinstance(p["entry_time"], str) else p["entry_time"],
+                    regime=p.get("regime", ""),
+                    macro=p.get("macro", ""),
+                    strategy=p.get("strategy", ""),
+                    explanation=p.get("explanation", ""),
+                )
+                self.paper_positions[position.symbol] = position
+                logger.info(f"📂 Loaded position: {position.side} {position.symbol} @ ${position.entry_price:.2f}")
+            except Exception as e:
+                logger.error(f"Failed to load position: {e}")
+    
     def check_sl_tp(self, position: Position) -> Optional[str]:
         current_price = self.get_price(position.symbol)
         if not current_price:
@@ -813,6 +837,54 @@ class BotSync:
             r = self.session.patch(
                 f"{self.app_url}/api/bot/close",
                 json={"command_id": command_id, "status": status},
+                timeout=5
+            )
+            return r.status_code == 200
+        except:
+            return False
+    
+    def load_positions(self) -> List[Dict]:
+        """Load persisted paper positions on startup."""
+        try:
+            r = self.session.get(f"{self.app_url}/api/bot/positions", timeout=5)
+            if r.status_code == 200:
+                return r.json().get("positions", [])
+        except Exception as e:
+            logger.debug(f"Failed to load positions: {e}")
+        return []
+    
+    def save_position(self, position: 'Position') -> bool:
+        """Save a position to Supabase."""
+        try:
+            r = self.session.post(
+                f"{self.app_url}/api/bot/positions",
+                json={
+                    "id": position.id,
+                    "symbol": position.symbol,
+                    "side": position.side,
+                    "entry_price": position.entry_price,
+                    "size": position.size,
+                    "leverage": position.leverage,
+                    "stop_loss": position.stop_loss,
+                    "take_profit": position.take_profit,
+                    "entry_time": position.entry_time.isoformat(),
+                    "regime": position.regime,
+                    "macro": position.macro,
+                    "strategy": position.strategy,
+                    "explanation": position.explanation,
+                },
+                timeout=5
+            )
+            return r.status_code == 200
+        except:
+            return False
+    
+    def delete_position(self, symbol: str) -> bool:
+        """Delete a closed position from Supabase."""
+        try:
+            r = self.session.delete(
+                f"{self.app_url}/api/bot/positions",
+                json={"symbol": symbol},
                 timeout=5
             )
             return r.status_code == 200
@@ -896,11 +968,18 @@ class APEXBot:
     
     def start(self):
         logger.info("=" * 60)
-        logger.info("  APEX Trading Bot v4 - With Trade Explanations")
+        logger.info("  APEX Trading Bot v5 - Persistent Positions")
         logger.info("=" * 60)
         logger.info(f"  Mode: {'PAPER' if self.config.PAPER_TRADE else 'LIVE'}")
         logger.info(f"  Assets: {', '.join(self.config.ASSETS)}")
         logger.info("=" * 60)
+        
+        # Load persisted positions on startup
+        if self.config.PAPER_TRADE:
+            saved_positions = self.sync.load_positions()
+            if saved_positions:
+                self.client.load_positions_from_db(saved_positions)
+                logger.info(f"📂 Loaded {len(saved_positions)} position(s) from database")
         
         while True:
             try:
@@ -937,6 +1016,8 @@ class APEXBot:
                         result = self.client.close_position(position, "MANUAL")
                         if result:
                             self.sync.trade_close(position, result, self.config.PAPER_TRADE)
+                            # Delete from database
+                            self.sync.delete_position(symbol)
                             logger.info(f"🖐️ Manual close: {symbol}")
                         break
                 
@@ -954,6 +1035,8 @@ class APEXBot:
                 result = self.client.close_position(position, close_reason)
                 if result:
                     self.sync.trade_close(position, result, self.config.PAPER_TRADE)
+                    # Delete from database
+                    self.sync.delete_position(position.symbol)
         
         positions = self.client.get_positions()
         positions_with_pnl = self.client.get_positions_with_pnl()
@@ -983,6 +1066,8 @@ class APEXBot:
                     if position:
                         trade_fired = True
                         self.sync.trade_signal(position, signal.confidence, self.config.PAPER_TRADE)
+                        # Persist position to database
+                        self.sync.save_position(position)
                         positions_with_pnl = self.client.get_positions_with_pnl()
         
         # Heartbeat
