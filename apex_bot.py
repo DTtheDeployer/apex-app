@@ -1,18 +1,8 @@
 #!/usr/bin/env python3
 """
-APEX Trading Bot v3 - Configurable Strategies
+APEX Trading Bot v4 - With Trade Explanations
 ==============================================
-Fetches strategy_mode and risk_level from dashboard settings.
-
-Strategy Modes:
-- conservative: Strict criteria, fewer trades
-- balanced: Mix of momentum and pullback
-- aggressive: Loose criteria, more trades
-
-Risk Levels:
-- low: 2% per trade
-- medium: 4% per trade  
-- high: 6% per trade
+Generates plain-English explanations for every trade.
 """
 
 from dotenv import load_dotenv
@@ -20,7 +10,6 @@ load_dotenv()
 
 import os
 import time
-import json
 import logging
 import requests
 import uuid
@@ -49,7 +38,7 @@ class Config:
     MAX_LEVERAGE: int = 10
     RISK_PER_TRADE: float = 0.04
     MAX_POSITIONS: int = 3
-    STRATEGY_MODE: str = "balanced"  # conservative, balanced, aggressive
+    STRATEGY_MODE: str = "balanced"
     
     PAPER_TRADE: bool = field(default_factory=lambda: os.getenv("PAPER_TRADE", "true").lower() == "true")
     PAPER_BALANCE: float = 10000.0
@@ -96,6 +85,9 @@ class Signal:
     take_profit: float
     regime: Regime
     macro: MacroContext
+    explanation: str = ""  # Plain-English explanation
+    rsi: float = 0
+    macd: float = 0
 
 @dataclass
 class Position:
@@ -110,21 +102,23 @@ class Position:
     entry_time: datetime
     regime: str
     macro: str
+    strategy: str = ""
+    explanation: str = ""
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  STRATEGY THRESHOLDS BY MODE
+#  STRATEGY THRESHOLDS
 # ══════════════════════════════════════════════════════════════════════════════
 
 STRATEGY_THRESHOLDS = {
     "conservative": {
-        "trend_rsi_pullback": 40,      # RSI must be below this for pullback entry
-        "trend_rsi_momentum_min": 55,  # RSI above this for momentum
-        "trend_rsi_momentum_max": 65,  # RSI below this for momentum
-        "mean_rev_rsi_oversold": 30,   # RSI for mean reversion long
-        "mean_rev_rsi_overbought": 70, # RSI for mean reversion short
-        "min_confidence": 0.6,         # Minimum confidence to enter
-        "atr_sl_mult": 2.5,            # ATR multiplier for stop loss
-        "atr_tp_mult": 3.5,            # ATR multiplier for take profit
+        "trend_rsi_pullback": 40,
+        "trend_rsi_momentum_min": 55,
+        "trend_rsi_momentum_max": 65,
+        "mean_rev_rsi_oversold": 30,
+        "mean_rev_rsi_overbought": 70,
+        "min_confidence": 0.6,
+        "atr_sl_mult": 2.5,
+        "atr_tp_mult": 3.5,
     },
     "balanced": {
         "trend_rsi_pullback": 50,
@@ -165,7 +159,6 @@ class RegimeDetector:
         lows = np.array([c["low"] for c in candles])
         
         adx = self._calculate_adx(highs, lows, closes)
-        atr_ratio = self._calculate_atr_ratio(highs, lows, closes)
         bb_width = self._calculate_bb_width(closes)
         
         sma_20 = np.mean(closes[-20:])
@@ -174,7 +167,7 @@ class RegimeDetector:
         
         if adx > 25:
             return Regime.TRENDING_UP if trend_up else Regime.TRENDING_DOWN
-        elif bb_width > 0.06 or atr_ratio > 1.5:
+        elif bb_width > 0.06:
             return Regime.VOLATILE
         else:
             return Regime.RANGING
@@ -201,16 +194,6 @@ class RegimeDetector:
         adx = self._smooth(dx, period)
         
         return adx[-1] if len(adx) > 0 else 0
-    
-    def _calculate_atr_ratio(self, highs, lows, closes, period=14):
-        tr = np.maximum(highs[1:] - lows[1:],
-                       np.maximum(np.abs(highs[1:] - closes[:-1]),
-                                 np.abs(lows[1:] - closes[:-1])))
-        
-        current_atr = np.mean(tr[-period:])
-        historical_atr = np.mean(tr[-period*3:-period]) if len(tr) > period * 3 else current_atr
-        
-        return current_atr / (historical_atr + 1e-10)
     
     def _calculate_bb_width(self, closes):
         n = self.lookback
@@ -253,7 +236,7 @@ class MacroCalendar:
         return MacroContext.NONE, None
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  SIGNAL ENGINE - CONFIGURABLE BY STRATEGY MODE
+#  SIGNAL ENGINE WITH EXPLANATIONS
 # ══════════════════════════════════════════════════════════════════════════════
 
 class SignalEngine:
@@ -288,38 +271,54 @@ class SignalEngine:
         atr = self._calculate_atr(highs, lows, closes)
         
         signal = None
+        explanation = ""
         
         # ═══════════════════════════════════════════════════════════════════
         # TRENDING UP
         # ═══════════════════════════════════════════════════════════════════
         if regime == Regime.TRENDING_UP:
-            # MOMENTUM: Strong trend, RSI in range, MACD positive
             rsi_min = thresholds["trend_rsi_momentum_min"]
             rsi_max = thresholds["trend_rsi_momentum_max"]
             
+            # MOMENTUM
             if rsi_min < rsi < rsi_max and current_price > sma_20 > sma_50 and macd > 0:
                 confidence = min(0.8, 0.5 + (rsi - 50) / 100)
                 stop_loss = current_price - (thresholds["atr_sl_mult"] * atr)
                 take_profit = current_price + (thresholds["atr_tp_mult"] * atr)
                 
+                explanation = (
+                    f"Strong uptrend detected. RSI at {rsi:.0f} shows momentum without being overbought. "
+                    f"Price (${current_price:,.0f}) is above both the 20-period (${sma_20:,.0f}) and 50-period (${sma_50:,.0f}) moving averages. "
+                    f"MACD is positive ({macd:.2f}), confirming bullish momentum. "
+                    f"Entering LONG with {confidence:.0%} confidence."
+                )
+                
                 signal = Signal(
                     type=SignalType.LONG, symbol=symbol, confidence=confidence,
                     strategy="MOMENTUM", entry_price=current_price,
                     stop_loss=stop_loss, take_profit=take_profit,
-                    regime=regime, macro=macro_context
+                    regime=regime, macro=macro_context,
+                    explanation=explanation, rsi=rsi, macd=macd
                 )
             
-            # PULLBACK: RSI below threshold, above SMA50
+            # PULLBACK
             elif rsi < thresholds["trend_rsi_pullback"] and current_price > sma_50:
                 confidence = min(0.75, 0.4 + (thresholds["trend_rsi_pullback"] - rsi) / 100)
                 stop_loss = current_price - (thresholds["atr_sl_mult"] * atr)
                 take_profit = current_price + (thresholds["atr_tp_mult"] * atr)
                 
+                explanation = (
+                    f"Pullback opportunity in uptrend. RSI dropped to {rsi:.0f}, indicating a temporary dip. "
+                    f"Price (${current_price:,.0f}) remains above the 50-period trend (${sma_50:,.0f}), so the overall uptrend is intact. "
+                    f"Buying the dip with {confidence:.0%} confidence."
+                )
+                
                 signal = Signal(
                     type=SignalType.LONG, symbol=symbol, confidence=confidence,
                     strategy="TREND_PULLBACK", entry_price=current_price,
                     stop_loss=stop_loss, take_profit=take_profit,
-                    regime=regime, macro=macro_context
+                    regime=regime, macro=macro_context,
+                    explanation=explanation, rsi=rsi, macd=macd
                 )
         
         # ═══════════════════════════════════════════════════════════════════
@@ -334,11 +333,19 @@ class SignalEngine:
                 stop_loss = current_price + (thresholds["atr_sl_mult"] * atr)
                 take_profit = current_price - (thresholds["atr_tp_mult"] * atr)
                 
+                explanation = (
+                    f"Strong downtrend detected. RSI at {rsi:.0f} shows selling pressure without being oversold. "
+                    f"Price (${current_price:,.0f}) is below both moving averages. "
+                    f"MACD is negative ({macd:.2f}), confirming bearish momentum. "
+                    f"Entering SHORT with {confidence:.0%} confidence."
+                )
+                
                 signal = Signal(
                     type=SignalType.SHORT, symbol=symbol, confidence=confidence,
                     strategy="MOMENTUM", entry_price=current_price,
                     stop_loss=stop_loss, take_profit=take_profit,
-                    regime=regime, macro=macro_context
+                    regime=regime, macro=macro_context,
+                    explanation=explanation, rsi=rsi, macd=macd
                 )
             
             elif rsi > (100 - thresholds["trend_rsi_pullback"]) and current_price < sma_50:
@@ -346,11 +353,18 @@ class SignalEngine:
                 stop_loss = current_price + (thresholds["atr_sl_mult"] * atr)
                 take_profit = current_price - (thresholds["atr_tp_mult"] * atr)
                 
+                explanation = (
+                    f"Rally in downtrend - shorting the bounce. RSI rose to {rsi:.0f}, but price (${current_price:,.0f}) "
+                    f"is still below the 50-period trend (${sma_50:,.0f}). The downtrend should resume. "
+                    f"Entering SHORT with {confidence:.0%} confidence."
+                )
+                
                 signal = Signal(
                     type=SignalType.SHORT, symbol=symbol, confidence=confidence,
                     strategy="TREND_PULLBACK", entry_price=current_price,
                     stop_loss=stop_loss, take_profit=take_profit,
-                    regime=regime, macro=macro_context
+                    regime=regime, macro=macro_context,
+                    explanation=explanation, rsi=rsi, macd=macd
                 )
         
         # ═══════════════════════════════════════════════════════════════════
@@ -362,11 +376,19 @@ class SignalEngine:
                 stop_loss = current_price - (1.5 * atr)
                 take_profit = bb_mid
                 
+                explanation = (
+                    f"Mean reversion opportunity. Market is ranging (no clear trend). "
+                    f"Price (${current_price:,.0f}) dropped below the lower Bollinger Band (${bb_lower:,.0f}), "
+                    f"and RSI is oversold at {rsi:.0f}. Expecting a bounce back to the middle band (${bb_mid:,.0f}). "
+                    f"Entering LONG with {confidence:.0%} confidence."
+                )
+                
                 signal = Signal(
                     type=SignalType.LONG, symbol=symbol, confidence=confidence,
                     strategy="MEAN_REVERSION", entry_price=current_price,
                     stop_loss=stop_loss, take_profit=take_profit,
-                    regime=regime, macro=macro_context
+                    regime=regime, macro=macro_context,
+                    explanation=explanation, rsi=rsi, macd=macd
                 )
             
             elif current_price > bb_upper and rsi > thresholds["mean_rev_rsi_overbought"]:
@@ -374,11 +396,19 @@ class SignalEngine:
                 stop_loss = current_price + (1.5 * atr)
                 take_profit = bb_mid
                 
+                explanation = (
+                    f"Mean reversion opportunity. Market is ranging. "
+                    f"Price (${current_price:,.0f}) spiked above the upper Bollinger Band (${bb_upper:,.0f}), "
+                    f"and RSI is overbought at {rsi:.0f}. Expecting a pullback to the middle band (${bb_mid:,.0f}). "
+                    f"Entering SHORT with {confidence:.0%} confidence."
+                )
+                
                 signal = Signal(
                     type=SignalType.SHORT, symbol=symbol, confidence=confidence,
                     strategy="MEAN_REVERSION", entry_price=current_price,
                     stop_loss=stop_loss, take_profit=take_profit,
-                    regime=regime, macro=macro_context
+                    regime=regime, macro=macro_context,
+                    explanation=explanation, rsi=rsi, macd=macd
                 )
         
         # ═══════════════════════════════════════════════════════════════════
@@ -393,11 +423,18 @@ class SignalEngine:
                 stop_loss = recent_high - atr
                 take_profit = current_price + (2.5 * atr)
                 
+                explanation = (
+                    f"Bullish breakout! Price (${current_price:,.0f}) just broke above the 20-period high (${recent_high:,.0f}). "
+                    f"RSI at {rsi:.0f} confirms momentum without extreme overbought. "
+                    f"Riding the breakout LONG with {confidence:.0%} confidence."
+                )
+                
                 signal = Signal(
                     type=SignalType.LONG, symbol=symbol, confidence=confidence,
                     strategy="BREAKOUT", entry_price=current_price,
                     stop_loss=stop_loss, take_profit=take_profit,
-                    regime=regime, macro=macro_context
+                    regime=regime, macro=macro_context,
+                    explanation=explanation, rsi=rsi, macd=macd
                 )
             
             elif current_price < recent_low and 25 < rsi < 50:
@@ -405,11 +442,18 @@ class SignalEngine:
                 stop_loss = recent_low + atr
                 take_profit = current_price - (2.5 * atr)
                 
+                explanation = (
+                    f"Bearish breakout! Price (${current_price:,.0f}) broke below the 20-period low (${recent_low:,.0f}). "
+                    f"RSI at {rsi:.0f} shows selling pressure without extreme oversold. "
+                    f"Riding the breakdown SHORT with {confidence:.0%} confidence."
+                )
+                
                 signal = Signal(
                     type=SignalType.SHORT, symbol=symbol, confidence=confidence,
                     strategy="BREAKOUT", entry_price=current_price,
                     stop_loss=stop_loss, take_profit=take_profit,
-                    regime=regime, macro=macro_context
+                    regime=regime, macro=macro_context,
+                    explanation=explanation, rsi=rsi, macd=macd
                 )
         
         # Apply minimum confidence filter
@@ -418,11 +462,11 @@ class SignalEngine:
         
         if signal and macro_context == MacroContext.CAUTION:
             signal.confidence *= 0.7
+            signal.explanation += " (Reduced position due to upcoming macro event.)"
         
         return signal
     
     def scan_signal_strength(self, symbol: str, candles: List[Dict]) -> Dict:
-        """Calculate proximity to trade signal (0-100%)."""
         if len(candles) < 50:
             return {"symbol": symbol, "strength": 0, "direction": "NEUTRAL", "trigger": "—", "rsi": 0}
         
@@ -628,7 +672,9 @@ class HyperliquidClient:
                 "entry_price": p.entry_price, "current_price": current_price,
                 "size": p.size, "unrealized_pnl": round(unrealized, 2),
                 "pnl_pct": round(pnl_pct, 2), "leverage": p.leverage,
-                "stop_loss": p.stop_loss, "take_profit": p.take_profit
+                "stop_loss": p.stop_loss, "take_profit": p.take_profit,
+                "strategy": p.strategy, "explanation": p.explanation,
+                "regime": p.regime
             })
         return result
     
@@ -641,10 +687,11 @@ class HyperliquidClient:
             entry_price=signal.entry_price, size=size, leverage=leverage,
             stop_loss=signal.stop_loss, take_profit=signal.take_profit,
             entry_time=datetime.now(timezone.utc),
-            regime=signal.regime.value, macro=signal.macro.value
+            regime=signal.regime.value, macro=signal.macro.value,
+            strategy=signal.strategy, explanation=signal.explanation
         )
         self.paper_positions[signal.symbol] = position
-        logger.info(f"🚀 Opened {signal.type.value} {signal.symbol} @ ${signal.entry_price:.2f} | Size: ${size:.0f} | {signal.strategy}")
+        logger.info(f"🚀 Opened {signal.type.value} {signal.symbol} @ ${signal.entry_price:.2f} | {signal.strategy}")
         return position
     
     def close_position(self, position: Position, reason: str) -> Optional[Dict]:
@@ -663,13 +710,24 @@ class HyperliquidClient:
         self.paper_balance += pnl
         del self.paper_positions[position.symbol]
         
-        logger.info(f"💰 Closed {position.symbol} | P&L: ${pnl:+.2f} | Reason: {reason}")
+        # Generate close explanation
+        if reason == "TP":
+            close_explanation = f"Take profit hit! Price reached ${current_price:,.0f}, hitting the target. Profit: ${pnl:.2f}"
+        elif reason == "SL":
+            close_explanation = f"Stop loss triggered at ${current_price:,.0f}. Loss limited to ${abs(pnl):.2f} as planned."
+        else:
+            close_explanation = f"Position closed at ${current_price:,.0f}. P&L: ${pnl:.2f}"
+        
+        logger.info(f"💰 Closed {position.symbol} | P&L: ${pnl:+.2f} | {reason}")
         return {
             "symbol": position.symbol, "side": position.side,
             "entry_price": position.entry_price, "exit_price": current_price,
             "size": position.size, "pnl": pnl,
             "pnl_pct": (pnl / position.size) * 100, "reason": reason,
-            "held_minutes": int((datetime.now(timezone.utc) - position.entry_time).total_seconds() / 60)
+            "held_minutes": int((datetime.now(timezone.utc) - position.entry_time).total_seconds() / 60),
+            "strategy": position.strategy,
+            "explanation": position.explanation,
+            "close_explanation": close_explanation
         }
     
     def _calculate_unrealized_pnl(self, position: Position) -> float:
@@ -731,13 +789,12 @@ class BotSync:
             return False
     
     def fetch_settings(self) -> Dict:
-        """Fetch strategy/risk settings from dashboard."""
         try:
             r = self.session.get(f"{self.app_url}/api/bot/settings?user_id={self.user_id}", timeout=5)
             if r.status_code == 200:
                 return r.json()
-        except Exception as e:
-            logger.debug(f"Settings fetch failed: {e}")
+        except:
+            pass
         return {}
     
     def heartbeat(self, equity: float, positions: List[Dict], regime: str, macro: str, trade_fired: bool = False, signal_radar: List[Dict] = None):
@@ -770,6 +827,7 @@ class BotSync:
             "leverage": position.leverage, "stop_loss": position.stop_loss,
             "take_profit": position.take_profit, "confidence": confidence,
             "regime": position.regime, "macro_context": position.macro,
+            "strategy": position.strategy, "explanation": position.explanation,
             "paper": paper, "timestamp": datetime.now(timezone.utc).isoformat(),
         })
     
@@ -782,8 +840,10 @@ class BotSync:
             "entry_price": result["entry_price"], "exit_price": result["exit_price"],
             "size": result["size"], "pnl": round(result["pnl"], 4),
             "pnl_pct": round(result["pnl_pct"], 4), "close_reason": result["reason"],
-            "held_minutes": result["held_minutes"], "paper": paper,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "held_minutes": result["held_minutes"],
+            "strategy": result.get("strategy", ""),
+            "explanation": result.get("close_explanation", ""),
+            "paper": paper, "timestamp": datetime.now(timezone.utc).isoformat(),
         })
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -798,15 +858,13 @@ class APEXBot:
         self.risk_manager = RiskManager(max_positions=self.config.MAX_POSITIONS, max_leverage=self.config.MAX_LEVERAGE)
         self.sync = BotSync(self.config.APEX_APP_URL, self.config.APEX_USER_ID, self.config.BOT_API_SECRET)
         
-        # Dynamic settings (fetched from dashboard)
         self.strategy_mode = "balanced"
         self.risk_per_trade = 0.04
         self._last_settings_fetch = 0
     
     def fetch_settings(self):
-        """Fetch settings from dashboard every 5 minutes."""
         now = time.time()
-        if now - self._last_settings_fetch > 300:  # 5 minutes
+        if now - self._last_settings_fetch > 300:
             settings = self.sync.fetch_settings()
             if settings:
                 self.strategy_mode = settings.get("strategy_mode", "balanced")
@@ -816,7 +874,7 @@ class APEXBot:
     
     def start(self):
         logger.info("=" * 60)
-        logger.info("  APEX Trading Bot v3 - Configurable Strategies")
+        logger.info("  APEX Trading Bot v4 - With Trade Explanations")
         logger.info("=" * 60)
         logger.info(f"  Mode: {'PAPER' if self.config.PAPER_TRADE else 'LIVE'}")
         logger.info(f"  Assets: {', '.join(self.config.ASSETS)}")
@@ -862,15 +920,12 @@ class APEXBot:
                 if not candles:
                     continue
                 
-                # Signal radar
                 scan = self.signal_engine.scan_signal_strength(symbol, candles)
                 signal_radar.append(scan)
                 
-                # Skip if in position
                 if any(p.symbol == symbol for p in positions):
                     continue
                 
-                # Generate signal using current strategy mode
                 signal = self.signal_engine.generate_signals(symbol, candles, self.strategy_mode)
                 current_regime = self.signal_engine.regime_detector.detect(candles)
                 
@@ -898,7 +953,7 @@ class APEXBot:
         hottest = max(signal_radar, key=lambda x: x["strength"]) if signal_radar else None
         hot_str = f" | 🔥 {hottest['symbol']} {hottest['strength']}%" if hottest and hottest['strength'] >= 50 else ""
         
-        logger.info(f"${equity:.0f} | Unreal: ${total_unrealized:+.0f} | [{pos_str or 'none'}] | {self.strategy_mode.upper()}{hot_str}")
+        logger.info(f"${equity:.0f} | [{pos_str or 'none'}] | {self.strategy_mode.upper()}{hot_str}")
 
 if __name__ == "__main__":
     bot = APEXBot()

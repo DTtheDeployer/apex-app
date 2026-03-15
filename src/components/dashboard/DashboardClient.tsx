@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { AreaChart, Area, ResponsiveContainer } from 'recharts'
-import { RefreshCw, Zap, Clock, TrendingUp, TrendingDown, Minus, Settings, Shield, AlertTriangle, X } from 'lucide-react'
+import { RefreshCw, Zap, Clock, TrendingUp, TrendingDown, Minus, Settings, Shield, AlertTriangle, X, Info, ChevronDown, ChevronUp } from 'lucide-react'
 import type { Profile, BotConfig, Trade, BotHeartbeat, EquitySnapshot, UserStats } from '@/types'
 
 interface SignalScan {
@@ -24,7 +24,7 @@ interface Props {
 }
 
 const STRATEGIES = [
-  { id: 'conservative', name: 'Conservative', icon: Shield, color: 'text-blue', bg: 'bg-blue/10 border-blue/30', desc: 'Stricter entry criteria, fewer trades' },
+  { id: 'conservative', name: 'Conservative', icon: Shield, color: 'text-blue', bg: 'bg-blue/10 border-blue/30', desc: 'Stricter criteria, fewer trades' },
   { id: 'balanced', name: 'Balanced', icon: TrendingUp, color: 'text-green', bg: 'bg-green/10 border-green/30', desc: 'Mix of momentum & pullback' },
   { id: 'aggressive', name: 'Aggressive', icon: Zap, color: 'text-gold', bg: 'bg-gold/10 border-gold/30', desc: 'Looser criteria, more trades' },
 ]
@@ -73,8 +73,8 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
   const [lastRefresh, setLastRefresh] = useState(new Date())
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [expandedTrade, setExpandedTrade] = useState<string | null>(null)
   
-  // Strategy settings
   const [strategy, setStrategy] = useState((config as any)?.strategy_mode || 'balanced')
   const [risk, setRisk] = useState((config as any)?.risk_level || 'medium')
   const [saving, setSaving] = useState(false)
@@ -146,7 +146,6 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
 
   const signalRadar: SignalScan[] = (heartbeat as any)?.signal_radar ?? []
   
-  // Get current strategy display info
   const currentStrat = STRATEGIES.find(s => s.id === strategy) || STRATEGIES[1]
   const currentRisk = RISK_LEVELS.find(r => r.id === risk) || RISK_LEVELS[1]
 
@@ -163,10 +162,7 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button 
-            onClick={() => setShowSettings(true)} 
-            className="p-1.5 text-muted hover:text-white rounded-lg hover:bg-white/5"
-          >
+          <button onClick={() => setShowSettings(true)} className="p-1.5 text-muted hover:text-white rounded-lg hover:bg-white/5">
             <Settings className="w-4 h-4" />
           </button>
           <button onClick={handleManualRefresh} className="p-1.5 text-muted hover:text-white">
@@ -175,12 +171,9 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
         </div>
       </div>
 
-      {/* Current Strategy Badge */}
+      {/* Strategy Badge */}
       <div className="flex items-center gap-2 mb-4">
-        <button 
-          onClick={() => setShowSettings(true)}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs ${currentStrat.bg}`}
-        >
+        <button onClick={() => setShowSettings(true)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs ${currentStrat.bg}`}>
           <currentStrat.icon className={`w-3 h-3 ${currentStrat.color}`} />
           <span className={currentStrat.color}>{currentStrat.name}</span>
           <span className="text-muted">•</span>
@@ -200,7 +193,6 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
               </button>
             </div>
 
-            {/* Strategy Mode */}
             <div className="mb-4">
               <p className="text-xs text-muted uppercase tracking-wider font-medium mb-2">Strategy Mode</p>
               <div className="space-y-2">
@@ -208,13 +200,8 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
                   const Icon = s.icon
                   const isActive = strategy === s.id
                   return (
-                    <button
-                      key={s.id}
-                      onClick={() => setStrategy(s.id)}
-                      className={`w-full p-3 rounded-lg border text-left transition-all ${
-                        isActive ? s.bg : 'bg-white/5 border-white/10 hover:border-white/20'
-                      }`}
-                    >
+                    <button key={s.id} onClick={() => setStrategy(s.id)}
+                      className={`w-full p-3 rounded-lg border text-left transition-all ${isActive ? s.bg : 'bg-white/5 border-white/10 hover:border-white/20'}`}>
                       <div className="flex items-center gap-2">
                         <Icon className={`w-4 h-4 ${isActive ? s.color : 'text-muted'}`} />
                         <span className={`text-sm font-medium ${isActive ? s.color : ''}`}>{s.name}</span>
@@ -226,20 +213,14 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
               </div>
             </div>
 
-            {/* Risk Level */}
             <div className="mb-4">
               <p className="text-xs text-muted uppercase tracking-wider font-medium mb-2">Risk per Trade</p>
               <div className="grid grid-cols-3 gap-2">
                 {RISK_LEVELS.map((r) => {
                   const isActive = risk === r.id
                   return (
-                    <button
-                      key={r.id}
-                      onClick={() => setRisk(r.id)}
-                      className={`p-3 rounded-lg border text-center transition-all ${
-                        isActive ? 'bg-green/10 border-green/30' : 'bg-white/5 border-white/10 hover:border-white/20'
-                      }`}
-                    >
+                    <button key={r.id} onClick={() => setRisk(r.id)}
+                      className={`p-3 rounded-lg border text-center transition-all ${isActive ? 'bg-green/10 border-green/30' : 'bg-white/5 border-white/10 hover:border-white/20'}`}>
                       <p className={`text-lg font-bold ${isActive ? 'text-green' : ''}`}>{r.pct}</p>
                       <p className="text-[10px] text-muted">{r.name}</p>
                     </button>
@@ -248,7 +229,6 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
               </div>
             </div>
 
-            {/* Warning */}
             {strategy === 'aggressive' && risk === 'high' && (
               <div className="flex items-center gap-2 p-2 rounded-lg bg-red/10 border border-red/20 mb-4">
                 <AlertTriangle className="w-4 h-4 text-red flex-shrink-0" />
@@ -256,19 +236,15 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
               </div>
             )}
 
-            {/* Save Button */}
-            <button
-              onClick={handleSaveSettings}
-              disabled={saving || !hasChanges}
-              className="w-full py-2 rounded-lg bg-green text-black font-medium text-sm hover:bg-green/90 disabled:opacity-50 transition-all"
-            >
+            <button onClick={handleSaveSettings} disabled={saving || !hasChanges}
+              className="w-full py-2 rounded-lg bg-green text-black font-medium text-sm hover:bg-green/90 disabled:opacity-50 transition-all">
               {saving ? 'Saving...' : saved ? '✓ Saved!' : hasChanges ? 'Save Changes' : 'No Changes'}
             </button>
           </div>
         </div>
       )}
 
-      {/* Quick Stats Row */}
+      {/* Stats Row */}
       <div className="grid grid-cols-4 gap-2 mb-4">
         <div className="bg-surface rounded-lg p-2 text-center">
           <p className="text-[10px] text-muted uppercase">Equity</p>
@@ -311,13 +287,9 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
                   {scan.strength}%
                 </p>
                 <div className="flex justify-center mt-1">
-                  {scan.direction === 'LONG' ? (
-                    <TrendingUp className="w-3 h-3 text-green" />
-                  ) : scan.direction === 'SHORT' ? (
-                    <TrendingDown className="w-3 h-3 text-red" />
-                  ) : (
-                    <Minus className="w-3 h-3 text-muted" />
-                  )}
+                  {scan.direction === 'LONG' ? <TrendingUp className="w-3 h-3 text-green" /> : 
+                   scan.direction === 'SHORT' ? <TrendingDown className="w-3 h-3 text-red" /> : 
+                   <Minus className="w-3 h-3 text-muted" />}
                 </div>
               </div>
             ))}
@@ -327,7 +299,7 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
         )}
       </div>
 
-      {/* Active Positions */}
+      {/* Active Positions with Explainer */}
       <div className={`rounded-lg border mb-4 ${openTrades.length > 0 ? 'border-green/30 bg-green/[0.02]' : 'border-white/10 bg-surface'}`}>
         <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -345,6 +317,8 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
               const pnl = (t as any).unrealized_pnl ?? 0
               const current = (t as any).current_price
               const isProfit = pnl >= 0
+              const explanation = (t as any).explanation
+              const isExpanded = expandedTrade === t.id
 
               return (
                 <div key={t.id} className="px-3 py-2">
@@ -354,17 +328,47 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
                       <span className="text-sm font-medium">{t.symbol}</span>
                       <span className="text-[10px] text-muted">{t.leverage}x</span>
                     </div>
-                    <div className="flex items-center gap-1 text-[10px] text-muted">
-                      <Clock className="w-3 h-3" />
-                      {timeSince(t.created_at)}
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1 text-[10px] text-muted">
+                        <Clock className="w-3 h-3" />
+                        {timeSince(t.created_at)}
+                      </div>
+                      <button 
+                        onClick={() => setExpandedTrade(isExpanded ? null : t.id)}
+                        className="p-1 text-muted hover:text-white rounded"
+                      >
+                        <Info className="w-3 h-3" />
+                      </button>
                     </div>
                   </div>
+                  
                   <div className="flex items-center justify-between">
                     <div className="text-xs text-muted">
                       ${t.entry_price?.toLocaleString()} → {current ? <span className={isProfit ? 'text-green' : 'text-red'}>${current.toLocaleString()}</span> : '—'}
                     </div>
                     <div className={`text-sm font-bold ${isProfit ? 'text-green' : 'text-red'}`}>{fmtSigned(pnl)}</div>
                   </div>
+
+                  {/* Trade Explainer */}
+                  {isExpanded && (
+                    <div className="mt-2 p-2 rounded-lg bg-white/5 border border-white/10">
+                      <div className="flex items-start gap-2">
+                        <Info className="w-3 h-3 text-blue mt-0.5 flex-shrink-0" />
+                        <div className="text-xs text-muted leading-relaxed">
+                          {explanation || (
+                            <>
+                              <span className="text-white font-medium">Why this trade?</span>
+                              <br />
+                              Opened {t.side} {t.symbol} using <span className="text-blue">{(t as any).strategy || 'MOMENTUM'}</span> strategy.
+                              {(t as any).regime && <> Market regime: <span className="text-green">{(t as any).regime}</span>.</>}
+                              {t.stop_loss && <> Stop loss at ${t.stop_loss.toLocaleString()}.</>}
+                              {t.take_profit && <> Target: ${t.take_profit.toLocaleString()}.</>}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -395,8 +399,74 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
         </div>
       )}
 
+      {/* Recent Closed Trades with Explainer */}
+      {closedTrades.length > 0 && (
+        <div className="bg-surface rounded-lg p-3">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[10px] text-muted uppercase">Recent Closed</p>
+            <a href="/dashboard/trades" className="text-[10px] text-green">View all</a>
+          </div>
+          <div className="space-y-1">
+            {closedTrades.slice(0, 5).map(t => {
+              const explanation = (t as any).explanation
+              const isExpanded = expandedTrade === t.id
+              
+              return (
+                <div key={t.id} className="py-2 border-b border-white/5 last:border-0">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[10px] font-bold ${t.side === 'LONG' ? 'text-green' : 'text-red'}`}>{t.side}</span>
+                      <span className="text-xs">{t.symbol}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-bold ${(t.pnl ?? 0) >= 0 ? 'text-green' : 'text-red'}`}>{fmtSigned(t.pnl)}</span>
+                      <span className={`text-[10px] px-1 rounded ${(t.pnl ?? 0) >= 0 ? 'bg-green/10 text-green' : 'bg-red/10 text-red'}`}>{t.close_reason}</span>
+                      <button 
+                        onClick={() => setExpandedTrade(isExpanded ? null : t.id)}
+                        className="p-1 text-muted hover:text-white rounded"
+                      >
+                        {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {/* Trade Explainer for Closed Trade */}
+                  {isExpanded && (
+                    <div className="mt-2 p-2 rounded-lg bg-white/5 border border-white/10">
+                      <div className="text-xs text-muted leading-relaxed space-y-1">
+                        <div className="flex justify-between">
+                          <span>Entry:</span>
+                          <span className="text-white">${t.entry_price?.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Exit:</span>
+                          <span className="text-white">${t.exit_price?.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Duration:</span>
+                          <span className="text-white">{(t as any).held_minutes ? `${(t as any).held_minutes}m` : '—'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Strategy:</span>
+                          <span className="text-blue">{(t as any).strategy || '—'}</span>
+                        </div>
+                        {explanation && (
+                          <div className="pt-1 mt-1 border-t border-white/10">
+                            <p className="text-white/80">{explanation}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Market + Stats */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3 mt-4">
         <div className="bg-surface rounded-lg p-3">
           <p className="text-[10px] text-muted uppercase mb-2">Market</p>
           <div className="space-y-1">
