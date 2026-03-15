@@ -526,7 +526,7 @@ export default function DashboardClient({
                   <div className={`w-3 h-3 rounded-full ${getSignalColor(scan.strength)} ${scan.strength >= 70 ? 'animate-pulse' : ''}`} />
                 </div>
                 <p className={`text-sm font-bold ${scan.strength >= 70 ? 'text-green' : scan.strength >= 30 ? 'text-yellow-500' : 'text-muted'}`}>
-                  {scan.strength}%
+                {Math.round(scan.strength)}%
                 </p>
                 <div className="flex justify-center mt-1">
                   {scan.direction === 'LONG' ? <TrendingUp className="w-3 h-3 text-green" /> : 
