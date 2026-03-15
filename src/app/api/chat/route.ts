@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 import { createClient } from '@supabase/supabase-js'
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY!,
 })
 
 const supabase = createClient(
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     const settings = settingsRes.data
     const heartbeat = heartbeatRes.data
 
-    // Build context for Claude
+    // Build context for the AI
     const tradingContext = {
       openPositions: positions.map(p => ({
         symbol: p.symbol,
@@ -91,24 +91,23 @@ ${JSON.stringify(tradingContext, null, 2)}
 - **Swing King**: Larger moves, wider stops, patient entries over days/weeks
 - **APEX Adaptive**: Hybrid that adapts to market regime automatically`
 
-    const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-5-20250514',
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
       max_tokens: 500,
-      system: systemPrompt,
       messages: [
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: message }
       ],
     })
 
-    const assistantMessage = response.content[0].type === 'text' 
-      ? response.content[0].text 
-      : 'Sorry, I could not generate a response.'
+    const assistantMessage = response.choices[0]?.message?.content 
+      || 'Sorry, I could not generate a response.'
 
     return NextResponse.json({ 
       message: assistantMessage,
       usage: {
-        input_tokens: response.usage.input_tokens,
-        output_tokens: response.usage.output_tokens,
+        input_tokens: response.usage?.prompt_tokens || 0,
+        output_tokens: response.usage?.completion_tokens || 0,
       }
     })
 
