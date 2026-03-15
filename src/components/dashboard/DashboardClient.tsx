@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { AreaChart, Area, ResponsiveContainer } from 'recharts'
-import { RefreshCw, Zap, Clock, TrendingUp, TrendingDown, Minus, Settings, Shield, AlertTriangle, X, Info, ChevronDown, ChevronUp } from 'lucide-react'
+import { RefreshCw, Zap, Clock, TrendingUp, TrendingDown, Minus, Settings, Shield, AlertTriangle, X, Info, ChevronDown, ChevronUp, Power } from 'lucide-react'
 import type { Profile, BotConfig, Trade, BotHeartbeat, EquitySnapshot, UserStats } from '@/types'
 
 interface SignalScan {
@@ -21,6 +21,7 @@ interface Props {
   heartbeat: BotHeartbeat | null
   equityHistory: EquitySnapshot[]
   stats: UserStats | null
+  botEnabled?: boolean
 }
 
 const STRATEGIES = [
@@ -68,7 +69,7 @@ function getSignalBgColor(strength: number): string {
   return 'bg-white/5 border-white/10'
 }
 
-export default function DashboardClient({ profile, config, trades, heartbeat, equityHistory, stats }: Props) {
+export default function DashboardClient({ profile, config, trades, heartbeat, equityHistory, stats, botEnabled = true }: Props) {
   const router = useRouter()
   const [lastRefresh, setLastRefresh] = useState(new Date())
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -79,6 +80,10 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
   const [risk, setRisk] = useState((config as any)?.risk_level || 'medium')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+
+  // Auto-trading toggle state
+  const [autoTrading, setAutoTrading] = useState(botEnabled)
+  const [togglingAutoTrading, setTogglingAutoTrading] = useState(false)
 
   const initialStrategy = (config as any)?.strategy_mode || 'balanced'
   const initialRisk = (config as any)?.risk_level || 'medium'
@@ -99,6 +104,26 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
     router.refresh()
     setLastRefresh(new Date())
     setTimeout(() => setIsRefreshing(false), 500)
+  }
+
+  const handleToggleAutoTrading = async () => {
+    setTogglingAutoTrading(true)
+    try {
+      const newState = !autoTrading
+      const res = await fetch('/api/bot/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: 'a040d19d-f40e-44f7-9b90-dead9d9bcfeb',
+          enabled: newState,
+        }),
+      })
+      if (res.ok) {
+        setAutoTrading(newState)
+      }
+    } finally {
+      setTogglingAutoTrading(false)
+    }
   }
 
   const handleSaveSettings = async () => {
@@ -181,6 +206,19 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Auto-Trading Toggle */}
+          <button
+            onClick={handleToggleAutoTrading}
+            disabled={togglingAutoTrading}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+              autoTrading
+                ? 'bg-green/10 text-green border border-green/30 hover:bg-green/20'
+                : 'bg-red/10 text-red border border-red/30 hover:bg-red/20'
+            } ${togglingAutoTrading ? 'opacity-50' : ''}`}
+          >
+            <Power className={`w-3 h-3 ${togglingAutoTrading ? 'animate-pulse' : ''}`} />
+            {autoTrading ? 'Auto: ON' : 'Auto: OFF'}
+          </button>
           <button onClick={() => setShowSettings(true)} className="p-1.5 text-muted hover:text-white rounded-lg hover:bg-white/5">
             <Settings className="w-4 h-4" />
           </button>
@@ -189,6 +227,14 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
           </button>
         </div>
       </div>
+
+      {/* Auto-Trading Paused Warning */}
+      {!autoTrading && (
+        <div className="flex items-center gap-2 p-2 rounded-lg bg-red/10 border border-red/20 mb-4">
+          <AlertTriangle className="w-4 h-4 text-red flex-shrink-0" />
+          <p className="text-xs text-red">Auto-trading is paused. The bot will not open new positions.</p>
+        </div>
+      )}
 
       {/* Strategy Badge */}
       <div className="flex items-center gap-2 mb-4">

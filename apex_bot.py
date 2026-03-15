@@ -85,7 +85,7 @@ class Signal:
     take_profit: float
     regime: Regime
     macro: MacroContext
-    explanation: str = ""  # Plain-English explanation
+    explanation: str = ""
     rsi: float = 0
     macd: float = 0
 
@@ -273,14 +273,10 @@ class SignalEngine:
         signal = None
         explanation = ""
         
-        # ═══════════════════════════════════════════════════════════════════
-        # TRENDING UP
-        # ═══════════════════════════════════════════════════════════════════
         if regime == Regime.TRENDING_UP:
             rsi_min = thresholds["trend_rsi_momentum_min"]
             rsi_max = thresholds["trend_rsi_momentum_max"]
             
-            # MOMENTUM
             if rsi_min < rsi < rsi_max and current_price > sma_20 > sma_50 and macd > 0:
                 confidence = min(0.8, 0.5 + (rsi - 50) / 100)
                 stop_loss = current_price - (thresholds["atr_sl_mult"] * atr)
@@ -301,7 +297,6 @@ class SignalEngine:
                     explanation=explanation, rsi=rsi, macd=macd
                 )
             
-            # PULLBACK
             elif rsi < thresholds["trend_rsi_pullback"] and current_price > sma_50:
                 confidence = min(0.75, 0.4 + (thresholds["trend_rsi_pullback"] - rsi) / 100)
                 stop_loss = current_price - (thresholds["atr_sl_mult"] * atr)
@@ -321,9 +316,6 @@ class SignalEngine:
                     explanation=explanation, rsi=rsi, macd=macd
                 )
         
-        # ═══════════════════════════════════════════════════════════════════
-        # TRENDING DOWN
-        # ═══════════════════════════════════════════════════════════════════
         elif regime == Regime.TRENDING_DOWN:
             rsi_min = 100 - thresholds["trend_rsi_momentum_max"]
             rsi_max = 100 - thresholds["trend_rsi_momentum_min"]
@@ -367,9 +359,6 @@ class SignalEngine:
                     explanation=explanation, rsi=rsi, macd=macd
                 )
         
-        # ═══════════════════════════════════════════════════════════════════
-        # RANGING - MEAN REVERSION
-        # ═══════════════════════════════════════════════════════════════════
         elif regime == Regime.RANGING:
             if current_price < bb_lower and rsi < thresholds["mean_rev_rsi_oversold"]:
                 confidence = min(0.7, 0.4 + (thresholds["mean_rev_rsi_oversold"] - rsi) / 50)
@@ -411,9 +400,6 @@ class SignalEngine:
                     explanation=explanation, rsi=rsi, macd=macd
                 )
         
-        # ═══════════════════════════════════════════════════════════════════
-        # VOLATILE - BREAKOUT
-        # ═══════════════════════════════════════════════════════════════════
         elif regime == Regime.VOLATILE:
             recent_high = max(highs[-20:])
             recent_low = min(lows[-20:])
@@ -456,7 +442,6 @@ class SignalEngine:
                     explanation=explanation, rsi=rsi, macd=macd
                 )
         
-        # Apply minimum confidence filter
         if signal and signal.confidence < thresholds["min_confidence"]:
             return None
         
@@ -710,7 +695,6 @@ class HyperliquidClient:
         self.paper_balance += pnl
         del self.paper_positions[position.symbol]
         
-        # Generate close explanation
         if reason == "TP":
             close_explanation = f"Take profit hit! Price reached ${current_price:,.0f}, hitting the target. Profit: ${pnl:.2f}"
         elif reason == "SL":
@@ -739,7 +723,6 @@ class HyperliquidClient:
         return (position.entry_price - current_price) / position.entry_price * position.size
     
     def load_positions_from_db(self, positions_data: List[Dict]):
-        """Load positions from database on startup."""
         for p in positions_data:
             try:
                 position = Position(
@@ -822,7 +805,6 @@ class BotSync:
         return {}
     
     def fetch_commands(self) -> List[Dict]:
-        """Fetch pending manual commands from dashboard."""
         try:
             r = self.session.get(f"{self.app_url}/api/bot/close?user_id={self.user_id}", timeout=5)
             if r.status_code == 200:
@@ -832,7 +814,6 @@ class BotSync:
         return []
     
     def ack_command(self, command_id: str, status: str = "completed") -> bool:
-        """Mark a command as processed."""
         try:
             r = self.session.patch(
                 f"{self.app_url}/api/bot/close",
@@ -844,7 +825,6 @@ class BotSync:
             return False
     
     def load_positions(self) -> List[Dict]:
-        """Load persisted paper positions on startup."""
         try:
             r = self.session.get(f"{self.app_url}/api/bot/positions", timeout=5)
             if r.status_code == 200:
@@ -854,7 +834,6 @@ class BotSync:
         return []
     
     def save_position(self, position: 'Position') -> bool:
-        """Save a position to Supabase."""
         try:
             r = self.session.post(
                 f"{self.app_url}/api/bot/positions",
@@ -880,7 +859,6 @@ class BotSync:
             return False
     
     def delete_position(self, symbol: str) -> bool:
-        """Delete a closed position from Supabase."""
         try:
             r = self.session.delete(
                 f"{self.app_url}/api/bot/positions",
@@ -954,16 +932,19 @@ class APEXBot:
         
         self.strategy_mode = "balanced"
         self.risk_per_trade = 0.04
+        self.auto_trading_enabled = True
         self._last_settings_fetch = 0
     
     def fetch_settings(self):
         now = time.time()
-        if now - self._last_settings_fetch > 300:
+        if now - self._last_settings_fetch > 60:
             settings = self.sync.fetch_settings()
             if settings:
                 self.strategy_mode = settings.get("strategy_mode", "balanced")
                 self.risk_per_trade = settings.get("risk_per_trade", 0.04)
-                logger.info(f"📋 Settings: {self.strategy_mode} mode, {self.risk_per_trade*100:.0f}% risk")
+                self.auto_trading_enabled = settings.get("enabled", True)
+                status = "🟢 ON" if self.auto_trading_enabled else "🔴 OFF"
+                logger.info(f"📋 Settings: {self.strategy_mode} mode, {self.risk_per_trade*100:.0f}% risk, Auto: {status}")
             self._last_settings_fetch = now
     
     def start(self):
@@ -974,7 +955,6 @@ class APEXBot:
         logger.info(f"  Assets: {', '.join(self.config.ASSETS)}")
         logger.info("=" * 60)
         
-        # Load persisted positions on startup
         if self.config.PAPER_TRADE:
             saved_positions = self.sync.load_positions()
             if saved_positions:
@@ -1010,21 +990,17 @@ class APEXBot:
                 payload = cmd.get("payload", {})
                 symbol = payload.get("symbol")
                 
-                # Find and close the position
                 for position in positions:
                     if position.symbol == symbol:
                         result = self.client.close_position(position, "MANUAL")
                         if result:
                             self.sync.trade_close(position, result, self.config.PAPER_TRADE)
-                            # Delete from database
                             self.sync.delete_position(symbol)
                             logger.info(f"🖐️ Manual close: {symbol}")
                         break
                 
-                # Acknowledge the command
                 self.sync.ack_command(cmd.get("id"))
         
-        # Refresh positions after manual closes
         positions = self.client.get_positions()
         positions_with_pnl = self.client.get_positions_with_pnl()
         
@@ -1035,14 +1011,13 @@ class APEXBot:
                 result = self.client.close_position(position, close_reason)
                 if result:
                     self.sync.trade_close(position, result, self.config.PAPER_TRADE)
-                    # Delete from database
                     self.sync.delete_position(position.symbol)
         
         positions = self.client.get_positions()
         positions_with_pnl = self.client.get_positions_with_pnl()
         
-        # Scan all assets
-        if self.risk_manager.check_risk_limits(positions, equity):
+        # Scan all assets - ONLY if auto trading is enabled
+        if self.auto_trading_enabled and self.risk_manager.check_risk_limits(positions, equity):
             for symbol in self.config.ASSETS:
                 candles = self.client.get_candles(symbol, self.config.TIMEFRAME)
                 if not candles:
@@ -1066,9 +1041,16 @@ class APEXBot:
                     if position:
                         trade_fired = True
                         self.sync.trade_signal(position, signal.confidence, self.config.PAPER_TRADE)
-                        # Persist position to database
                         self.sync.save_position(position)
                         positions_with_pnl = self.client.get_positions_with_pnl()
+        else:
+            # Still scan for signal radar even when auto trading is off
+            for symbol in self.config.ASSETS:
+                candles = self.client.get_candles(symbol, self.config.TIMEFRAME)
+                if candles:
+                    scan = self.signal_engine.scan_signal_strength(symbol, candles)
+                    signal_radar.append(scan)
+                    current_regime = self.signal_engine.regime_detector.detect(candles)
         
         # Heartbeat
         self.sync.heartbeat(
@@ -1082,8 +1064,9 @@ class APEXBot:
         pos_str = ", ".join([f"{p['symbol']}({p['unrealized_pnl']:+.0f})" for p in positions_with_pnl])
         hottest = max(signal_radar, key=lambda x: x["strength"]) if signal_radar else None
         hot_str = f" | 🔥 {hottest['symbol']} {hottest['strength']}%" if hottest and hottest['strength'] >= 50 else ""
+        auto_str = "" if self.auto_trading_enabled else " | ⏸️ PAUSED"
         
-        logger.info(f"${equity:.0f} | [{pos_str or 'none'}] | {self.strategy_mode.upper()}{hot_str}")
+        logger.info(f"${equity:.0f} | [{pos_str or 'none'}] | {self.strategy_mode.upper()}{hot_str}{auto_str}")
 
 if __name__ == "__main__":
     bot = APEXBot()

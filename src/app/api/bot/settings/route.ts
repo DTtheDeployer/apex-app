@@ -19,17 +19,24 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Missing user_id' }, { status: 400 })
   }
 
-  const { data, error } = await supabase
+  // Fetch from bot_configs
+  const { data: configData, error: configError } = await supabase
     .from('bot_configs')
     .select('strategy_mode, risk_level, max_positions, assets, testnet')
     .eq('user_id', userId)
     .single()
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+  // Fetch enabled status from bot_settings
+  const { data: settingsData } = await supabase
+    .from('bot_settings')
+    .select('enabled')
+    .eq('user_id', userId)
+    .single()
+
+  if (configError) {
+    return NextResponse.json({ error: configError.message }, { status: 500 })
   }
 
-  // Map to bot config values
   const riskMap: Record<string, number> = {
     low: 0.02,
     medium: 0.04,
@@ -37,11 +44,12 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({
-    strategy_mode: data.strategy_mode || 'balanced',
-    risk_per_trade: riskMap[data.risk_level] || 0.04,
-    max_positions: data.max_positions || 3,
-    assets: data.assets || ['BTC', 'ETH', 'SOL', 'ARB', 'DOGE'],
-    testnet: data.testnet ?? true,
+    strategy_mode: configData.strategy_mode || 'balanced',
+    risk_per_trade: riskMap[configData.risk_level] || 0.04,
+    max_positions: configData.max_positions || 3,
+    assets: configData.assets || ['BTC', 'ETH', 'SOL', 'ARB', 'DOGE'],
+    testnet: configData.testnet ?? true,
+    enabled: settingsData?.enabled ?? true,
   })
 }
 
@@ -69,6 +77,31 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true })
+  } catch (e) {
+    return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
+  }
+}
+
+// PATCH - Toggle auto-trading on/off
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { user_id, enabled } = body
+
+    if (!user_id || typeof enabled !== 'boolean') {
+      return NextResponse.json({ error: 'Missing user_id or enabled' }, { status: 400 })
+    }
+
+    const { error } = await supabase
+      .from('bot_settings')
+      .update({ enabled })
+      .eq('user_id', user_id)
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true, enabled })
   } catch (e) {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
   }
