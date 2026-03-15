@@ -92,7 +92,7 @@ ${JSON.stringify(tradingContext, null, 2)}
 - **APEX Adaptive**: Hybrid that adapts to market regime automatically`
 
     const response = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: 'claude-sonnet-4-5-20250514',
       max_tokens: 500,
       system: systemPrompt,
       messages: [
