@@ -797,6 +797,28 @@ class BotSync:
             pass
         return {}
     
+    def fetch_commands(self) -> List[Dict]:
+        """Fetch pending manual commands from dashboard."""
+        try:
+            r = self.session.get(f"{self.app_url}/api/bot/close?user_id={self.user_id}", timeout=5)
+            if r.status_code == 200:
+                return r.json().get("commands", [])
+        except:
+            pass
+        return []
+    
+    def ack_command(self, command_id: str, status: str = "completed") -> bool:
+        """Mark a command as processed."""
+        try:
+            r = self.session.patch(
+                f"{self.app_url}/api/bot/close",
+                json={"command_id": command_id, "status": status},
+                timeout=5
+            )
+            return r.status_code == 200
+        except:
+            return False
+    
     def heartbeat(self, equity: float, positions: List[Dict], regime: str, macro: str, trade_fired: bool = False, signal_radar: List[Dict] = None):
         self._reset_daily()
         self._cycles_today += 1
@@ -901,6 +923,29 @@ class APEXBot:
         current_regime = Regime.UNKNOWN
         trade_fired = False
         signal_radar = []
+        
+        # Process manual commands from dashboard
+        commands = self.sync.fetch_commands()
+        for cmd in commands:
+            if cmd.get("command") == "CLOSE_POSITION":
+                payload = cmd.get("payload", {})
+                symbol = payload.get("symbol")
+                
+                # Find and close the position
+                for position in positions:
+                    if position.symbol == symbol:
+                        result = self.client.close_position(position, "MANUAL")
+                        if result:
+                            self.sync.trade_close(position, result, self.config.PAPER_TRADE)
+                            logger.info(f"🖐️ Manual close: {symbol}")
+                        break
+                
+                # Acknowledge the command
+                self.sync.ack_command(cmd.get("id"))
+        
+        # Refresh positions after manual closes
+        positions = self.client.get_positions()
+        positions_with_pnl = self.client.get_positions_with_pnl()
         
         # Check SL/TP
         for position in positions:
