@@ -6,14 +6,15 @@ import { createClient } from '@/lib/supabase/client'
 import type { Profile } from '@/types'
 import {
   LayoutDashboard, Settings, TrendingUp, CreditCard,
-  LogOut, Zap, ChevronRight, Menu, X
+  LogOut, Zap, ChevronRight, Menu, X, Crosshair
 } from 'lucide-react'
 
 const nav = [
-  { label: 'Dashboard',   href: '/dashboard',          icon: LayoutDashboard },
-  { label: 'Trades',      href: '/dashboard/trades',   icon: TrendingUp },
-  { label: 'Settings',    href: '/settings',           icon: Settings },
-  { label: 'Billing',     href: '/settings/billing',   icon: CreditCard },
+  { label: 'Dashboard',     href: '/dashboard',          icon: LayoutDashboard },
+  { label: 'Manual Trade',  href: '/dashboard/manual',   icon: Crosshair },
+  { label: 'Trades',        href: '/dashboard/trades',   icon: TrendingUp },
+  { label: 'Settings',      href: '/settings',           icon: Settings },
+  { label: 'Billing',       href: '/settings/billing',   icon: CreditCard },
 ]
 
 const PLAN_BADGE: Record<string, string> = {
@@ -60,16 +61,19 @@ export default function Sidebar({ profile }: { profile: Profile | null }) {
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-0.5">
         {nav.map(({ label, href, icon: Icon }) => {
-          const active = pathname === href || pathname.startsWith(href + '/')
+          const active = pathname === href || (href !== '/dashboard' && pathname.startsWith(href + '/'))
+          const isExactDashboard = href === '/dashboard' && pathname === '/dashboard'
+          const isActive = isExactDashboard || active
+          
           return (
             <Link key={href} href={href} onClick={closeMobile}
               className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors group
-                ${active
+                ${isActive
                   ? 'bg-green/10 text-green'
                   : 'text-muted hover:text-white hover:bg-white/[0.04]'}`}>
               <Icon className="w-4 h-4 flex-shrink-0" />
               {label}
-              {active && <ChevronRight className="w-3 h-3 ml-auto" />}
+              {isActive && <ChevronRight className="w-3 h-3 ml-auto" />}
             </Link>
           )
         })}
