@@ -11,6 +11,7 @@ Features:
 - Macro calendar: Pauses during FOMC, CPI, NFP
 - Risk management: Dynamic position sizing, SL/TP
 - Dashboard sync: Real-time updates to APEX web dashboard
+- Live P&L tracking for open positions
 
 Usage:
   1. Set environment variables (see .env.example)
@@ -18,6 +19,7 @@ Usage:
 
 Author: APEX / Built for Dan
 """
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -635,6 +637,8 @@ class HyperliquidClient:
         self.paper_balance = config.PAPER_BALANCE
         self.paper_positions: Dict[str, Position] = {}
         self.session = requests.Session()
+        self._price_cache: Dict[str, float] = {}
+        self._cache_time: float = 0
     
     def get_candles(self, symbol: str, interval: str = "1h", limit: int = 100) -> List[Dict]:
         """Fetch OHLCV candles from Hyperliquid."""
@@ -673,8 +677,12 @@ class HyperliquidClient:
             logger.error(f"Error fetching candles: {e}")
             return []
     
-    def get_price(self, symbol: str) -> Optional[float]:
-        """Get current price for a symbol."""
+    def get_all_prices(self) -> Dict[str, float]:
+        """Get all mid prices, with caching."""
+        now = time.time()
+        if now - self._cache_time < 5:  # Cache for 5 seconds
+            return self._price_cache
+        
         try:
             response = self.session.post(
                 self.INFO_URL,
@@ -684,11 +692,18 @@ class HyperliquidClient:
             
             if response.status_code == 200:
                 data = response.json()
-                return float(data.get(symbol, 0))
-            return None
+                self._price_cache = {k: float(v) for k, v in data.items()}
+                self._cache_time = now
+                return self._price_cache
+            return self._price_cache
         except Exception as e:
-            logger.error(f"Error fetching price: {e}")
-            return None
+            logger.error(f"Error fetching prices: {e}")
+            return self._price_cache
+    
+    def get_price(self, symbol: str) -> Optional[float]:
+        """Get current price for a symbol."""
+        prices = self.get_all_prices()
+        return prices.get(symbol)
     
     def get_equity(self) -> float:
         """Get account equity."""
@@ -759,6 +774,28 @@ class HyperliquidClient:
         except Exception as e:
             logger.error(f"Error fetching positions: {e}")
             return []
+    
+    def get_positions_with_pnl(self) -> List[Dict]:
+        """Get open positions with current unrealized P&L."""
+        positions = self.get_positions()
+        result = []
+        for p in positions:
+            current_price = self.get_price(p.symbol)
+            unrealized_pnl = self._calculate_unrealized_pnl(p) if current_price else 0
+            pnl_pct = (unrealized_pnl / p.size * 100) if p.size > 0 else 0
+            
+            result.append({
+                "id": p.id,
+                "symbol": p.symbol,
+                "side": p.side,
+                "entry_price": p.entry_price,
+                "current_price": current_price,
+                "size": p.size,
+                "unrealized_pnl": round(unrealized_pnl, 2),
+                "pnl_pct": round(pnl_pct, 2),
+                "leverage": p.leverage,
+            })
+        return result
     
     def open_position(self, signal: Signal, size: float, leverage: int) -> Optional[Position]:
         """Open a new position."""
@@ -867,11 +904,11 @@ class HyperliquidClient:
         return None
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  DASHBOARD SYNC (from apex_bot_sync.py)
+#  DASHBOARD SYNC
 # ══════════════════════════════════════════════════════════════════════════════
 
 class BotSync:
-    """Sync bot state to APEX web dashboard."""
+    """Sync bot state to APEX web dashboard with live P&L tracking."""
     
     def __init__(self, config: Config):
         self.config = config
@@ -882,7 +919,8 @@ class BotSync:
         })
         self._cycles_today = 0
         self._trades_today = 0
-        self._pnl_today = 0.0
+        self._realized_pnl_today = 0.0
+        self._starting_equity = None
         self._day = datetime.now(timezone.utc).date()
     
     def _reset_daily(self):
@@ -890,7 +928,8 @@ class BotSync:
         if today > self._day:
             self._cycles_today = 0
             self._trades_today = 0
-            self._pnl_today = 0.0
+            self._realized_pnl_today = 0.0
+            self._starting_equity = None
             self._day = today
     
     def _post(self, payload: dict) -> bool:
@@ -908,27 +947,37 @@ class BotSync:
     def heartbeat(
         self,
         equity: float,
-        open_positions: int,
+        positions_with_pnl: List[Dict],
         regime: str,
         macro_context: str,
-        pnl_delta: float = 0.0,
         trade_fired: bool = False
     ):
         self._reset_daily()
         self._cycles_today += 1
         if trade_fired:
             self._trades_today += 1
-        self._pnl_today += pnl_delta
+        
+        # Track starting equity for the day
+        if self._starting_equity is None:
+            self._starting_equity = equity
+        
+        # Calculate total unrealized P&L from positions
+        total_unrealized_pnl = sum(p.get("unrealized_pnl", 0) for p in positions_with_pnl)
+        
+        # P&L today = unrealized + realized
+        pnl_today = total_unrealized_pnl + self._realized_pnl_today
         
         self._post({
             "type": "heartbeat",
             "equity": equity,
-            "open_positions": open_positions,
+            "open_positions": len(positions_with_pnl),
             "regime": regime,
             "macro_context": macro_context,
             "cycles_today": self._cycles_today,
             "trades_today": self._trades_today,
-            "pnl_today": round(self._pnl_today, 2),
+            "pnl_today": round(pnl_today, 2),
+            "unrealized_pnl": round(total_unrealized_pnl, 2),
+            "positions": positions_with_pnl,  # Send position details with P&L
         })
     
     def trade_signal(self, position: Position, confidence: float, net_score: float):
@@ -951,7 +1000,7 @@ class BotSync:
         })
     
     def trade_close(self, position: Position, result: Dict):
-        self._pnl_today += result["pnl"]
+        self._realized_pnl_today += result["pnl"]
         self._post({
             "type": "trade_close",
             "id": str(uuid.uuid4()),
@@ -1013,13 +1062,13 @@ class APEXBot:
         """Run one bot cycle."""
         equity = self.client.get_equity()
         positions = self.client.get_positions()
+        positions_with_pnl = self.client.get_positions_with_pnl()
         
         # Get current regime and macro context for dashboard
         macro_context, _ = self.signal_engine.macro_calendar.get_context()
         current_regime = Regime.UNKNOWN
         
         trade_fired = False
-        pnl_delta = 0.0
         
         # ═══════════════════════════════════════════════════════════════════
         # CHECK EXISTING POSITIONS FOR SL/TP
@@ -1029,8 +1078,11 @@ class APEXBot:
             if close_reason:
                 result = self.client.close_position(position, close_reason)
                 if result:
-                    pnl_delta += result["pnl"]
                     self.sync.trade_close(position, result)
+        
+        # Refresh positions after closes
+        positions = self.client.get_positions()
+        positions_with_pnl = self.client.get_positions_with_pnl()
         
         # ═══════════════════════════════════════════════════════════════════
         # SCAN FOR NEW SIGNALS
@@ -1064,6 +1116,9 @@ class APEXBot:
                         trade_fired = True
                         self.sync.trade_signal(position, signal.confidence, signal.confidence)
                         
+                        # Refresh positions with P&L after new trade
+                        positions_with_pnl = self.client.get_positions_with_pnl()
+                        
                         logger.info(
                             f"[{symbol}] {signal.type.value} | "
                             f"Strategy: {signal.strategy} | "
@@ -1073,24 +1128,28 @@ class APEXBot:
                         )
         
         # ═══════════════════════════════════════════════════════════════════
-        # SEND HEARTBEAT
+        # SEND HEARTBEAT WITH LIVE P&L
         # ═══════════════════════════════════════════════════════════════════
         self.sync.heartbeat(
             equity=equity,
-            open_positions=len(self.client.get_positions()),
+            positions_with_pnl=positions_with_pnl,
             regime=current_regime.value,
             macro_context=macro_context.value,
-            pnl_delta=pnl_delta,
             trade_fired=trade_fired
         )
         
-        # Log status
-        positions_str = ", ".join([f"{p.symbol}:{p.side}" for p in self.client.get_positions()])
+        # Log status with P&L
+        total_unrealized = sum(p.get("unrealized_pnl", 0) for p in positions_with_pnl)
+        positions_str = ", ".join([
+            f"{p['symbol']}:{p['side']}({p['unrealized_pnl']:+.2f})" 
+            for p in positions_with_pnl
+        ])
+        
         logger.info(
             f"Cycle | Equity: ${equity:.2f} | "
+            f"Unrealized: ${total_unrealized:+.2f} | "
             f"Positions: [{positions_str or 'none'}] | "
-            f"Regime: {current_regime.value} | "
-            f"Macro: {macro_context.value}"
+            f"Regime: {current_regime.value}"
         )
 
 # ══════════════════════════════════════════════════════════════════════════════

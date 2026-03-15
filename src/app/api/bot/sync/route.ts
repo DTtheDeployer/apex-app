@@ -1,122 +1,235 @@
-// src/app/api/bot/sync/route.ts
-// The trading bot POSTs to this endpoint every cycle
-// Secured with BOT_API_SECRET header
+import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 
-import { NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/server'
+// Use service role for server-side operations
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
 
-function authorised(req: Request): boolean {
-  const secret = req.headers.get('x-bot-secret')
-  return secret === process.env.BOT_API_SECRET
+// Simple auth check - verify bot secret
+const BOT_API_SECRET = process.env.BOT_API_SECRET || ''
+
+export async function POST(request: NextRequest) {
+  try {
+    // Check bot secret
+    const botSecret = request.headers.get('x-bot-secret')
+    if (BOT_API_SECRET && botSecret !== BOT_API_SECRET) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const body = await request.json()
+    const { type, user_id, ...data } = body
+
+    if (!user_id) {
+      return NextResponse.json({ error: 'Missing user_id' }, { status: 400 })
+    }
+
+    switch (type) {
+      case 'heartbeat':
+        return handleHeartbeat(user_id, data)
+      case 'trade_signal':
+        return handleTradeSignal(user_id, data)
+      case 'trade_close':
+        return handleTradeClose(user_id, data)
+      default:
+        return NextResponse.json({ error: 'Unknown type' }, { status: 400 })
+    }
+  } catch (error) {
+    console.error('Bot sync error:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
 }
 
-// ── POST /api/bot/sync/heartbeat ─────────────────────────────────────────────
-export async function POST(req: Request) {
-  if (!authorised(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+async function handleHeartbeat(userId: string, data: any) {
+  const {
+    equity,
+    open_positions,
+    regime,
+    macro_context,
+    cycles_today,
+    trades_today,
+    pnl_today,
+    unrealized_pnl,
+    positions,
+  } = data
+
+  // Upsert heartbeat record
+  const { error: heartbeatError } = await supabase
+    .from('bot_heartbeats')
+    .upsert({
+      user_id: userId,
+      equity,
+      open_positions,
+      regime,
+      macro_context,
+      cycles_today,
+      trades_today,
+      pnl_today,
+      unrealized_pnl: unrealized_pnl ?? 0,
+      created_at: new Date().toISOString(),
+    }, {
+      onConflict: 'user_id'
+    })
+
+  if (heartbeatError) {
+    console.error('Heartbeat error:', heartbeatError)
+    return NextResponse.json({ error: 'Failed to save heartbeat' }, { status: 500 })
   }
 
-  const body = await req.json()
-  const { type, user_id, ...data } = body
+  // Also save equity snapshot for chart
+  const { error: snapshotError } = await supabase
+    .from('equity_snapshots')
+    .insert({
+      user_id: userId,
+      equity,
+      snapshot_at: new Date().toISOString(),
+    })
 
-  if (!user_id) return NextResponse.json({ error: 'user_id required' }, { status: 400 })
+  if (snapshotError) {
+    console.error('Snapshot error:', snapshotError)
+    // Don't fail the request for snapshot errors
+  }
 
-  const supabase = createAdminClient()
-
-  switch (type) {
-    // ── Heartbeat (every bot cycle) ──────────────────────────────────────────
-    case 'heartbeat': {
-      await supabase.from('bot_heartbeats').insert({
-        user_id,
-        equity:         data.equity,
-        open_positions: data.open_positions ?? 0,
-        regime:         data.regime ?? 'UNKNOWN',
-        macro_context:  data.macro_context ?? 'NONE',
-        cycles_today:   data.cycles_today ?? 0,
-        trades_today:   data.trades_today ?? 0,
-        pnl_today:      data.pnl_today ?? 0,
-      })
-
-      // Also upsert equity snapshot (for chart)
-      await supabase.from('equity_snapshots').insert({
-        user_id,
-        equity: data.equity,
-      })
-
-      // Clean up old heartbeats (keep 48h)
-      await supabase.from('bot_heartbeats')
-        .delete()
-        .eq('user_id', user_id)
-        .lt('created_at', new Date(Date.now() - 48 * 3600 * 1000).toISOString())
-
-      return NextResponse.json({ ok: true })
-    }
-
-    // ── Trade signal (new position opened) ───────────────────────────────────
-    case 'trade_signal': {
-      const { error } = await supabase.from('trades').upsert({
-        user_id,
-        external_id:  data.id,
-        type:         'signal',
-        symbol:       data.symbol,
-        side:         data.side,
-        entry_price:  data.entry_price,
-        size:         data.size,
-        leverage:     data.leverage ?? 3,
-        stop_loss:    data.stop_loss,
-        take_profit:  data.take_profit,
-        confidence:   data.confidence,
-        net_score:    data.net_score,
-        regime:       data.regime,
-        macro_context:data.macro_context,
-        paper:        data.paper ?? true,
-        opened_at:    data.timestamp ?? new Date().toISOString(),
-      }, { onConflict: 'external_id' })
-
-      if (error) console.error('Trade insert error:', error)
-      return NextResponse.json({ ok: true })
-    }
-
-    // ── Trade close ──────────────────────────────────────────────────────────
-    case 'trade_close': {
-      // Find the open trade by external_id of the original signal
-      const { data: existing } = await supabase.from('trades')
-        .select('id').eq('external_id', data.signal_id).single()
-
-      if (existing) {
-        await supabase.from('trades').update({
-          exit_price:   data.exit_price,
-          pnl:          data.pnl,
-          pnl_pct:      data.pnl_pct,
-          close_reason: data.close_reason,
-          held_minutes: data.held_minutes,
-          closed_at:    data.timestamp ?? new Date().toISOString(),
-        }).eq('id', existing.id)
-      } else {
-        // Insert as complete record if we missed the open
-        await supabase.from('trades').insert({
-          user_id,
-          external_id:  data.id,
-          type:         'close',
-          symbol:       data.symbol,
-          side:         data.side,
-          entry_price:  data.entry_price,
-          exit_price:   data.exit_price,
-          size:         data.size,
-          pnl:          data.pnl,
-          pnl_pct:      data.pnl_pct,
-          close_reason: data.close_reason,
-          held_minutes: data.held_minutes,
-          paper:        data.paper ?? true,
-          opened_at:    data.opened_at ?? new Date().toISOString(),
-          closed_at:    data.timestamp ?? new Date().toISOString(),
+  // Update live P&L for open trades if positions data is provided
+  if (positions && Array.isArray(positions)) {
+    for (const pos of positions) {
+      // Update the trade record with current unrealized P&L
+      await supabase
+        .from('trades')
+        .update({
+          current_price: pos.current_price,
+          unrealized_pnl: pos.unrealized_pnl,
+          unrealized_pnl_pct: pos.pnl_pct,
         })
-      }
-
-      return NextResponse.json({ ok: true })
+        .eq('user_id', userId)
+        .eq('symbol', pos.symbol)
+        .is('closed_at', null)
     }
-
-    default:
-      return NextResponse.json({ error: `Unknown type: ${type}` }, { status: 400 })
   }
+
+  // Update user stats with today's P&L
+  await supabase
+    .from('user_stats')
+    .upsert({
+      user_id: userId,
+      pnl_today: pnl_today ?? 0,
+      updated_at: new Date().toISOString(),
+    }, {
+      onConflict: 'user_id'
+    })
+
+  return NextResponse.json({ ok: true })
+}
+
+async function handleTradeSignal(userId: string, data: any) {
+  const {
+    id,
+    symbol,
+    side,
+    entry_price,
+    size,
+    leverage,
+    stop_loss,
+    take_profit,
+    confidence,
+    net_score,
+    regime,
+    macro_context,
+    paper,
+    timestamp,
+  } = data
+
+  const { error } = await supabase
+    .from('trades')
+    .insert({
+      id,
+      user_id: userId,
+      symbol,
+      side,
+      entry_price,
+      size,
+      leverage,
+      stop_loss,
+      take_profit,
+      confidence,
+      net_score,
+      regime,
+      macro_context,
+      paper,
+      current_price: entry_price,
+      unrealized_pnl: 0,
+      unrealized_pnl_pct: 0,
+      created_at: timestamp || new Date().toISOString(),
+    })
+
+  if (error) {
+    console.error('Trade signal error:', error)
+    return NextResponse.json({ error: 'Failed to save trade' }, { status: 500 })
+  }
+
+  return NextResponse.json({ ok: true })
+}
+
+async function handleTradeClose(userId: string, data: any) {
+  const {
+    signal_id,
+    exit_price,
+    pnl,
+    pnl_pct,
+    close_reason,
+    held_minutes,
+    timestamp,
+  } = data
+
+  // Update the existing trade record
+  const { error } = await supabase
+    .from('trades')
+    .update({
+      exit_price,
+      pnl,
+      pnl_pct,
+      close_reason,
+      held_minutes,
+      unrealized_pnl: null,
+      unrealized_pnl_pct: null,
+      current_price: exit_price,
+      closed_at: timestamp || new Date().toISOString(),
+    })
+    .eq('id', signal_id)
+
+  if (error) {
+    console.error('Trade close error:', error)
+    return NextResponse.json({ error: 'Failed to close trade' }, { status: 500 })
+  }
+
+  // Update user stats
+  const { data: trades } = await supabase
+    .from('trades')
+    .select('pnl')
+    .eq('user_id', userId)
+    .not('closed_at', 'is', null)
+
+  if (trades) {
+    const totalPnl = trades.reduce((sum, t) => sum + (t.pnl || 0), 0)
+    const wins = trades.filter(t => (t.pnl || 0) > 0).length
+    const losses = trades.filter(t => (t.pnl || 0) < 0).length
+    const winRate = trades.length > 0 ? (wins / trades.length) * 100 : 0
+
+    await supabase
+      .from('user_stats')
+      .upsert({
+        user_id: userId,
+        total_pnl: totalPnl,
+        total_trades: trades.length,
+        wins,
+        losses,
+        win_rate_pct: winRate,
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'user_id'
+      })
+  }
+
+  return NextResponse.json({ ok: true })
 }
