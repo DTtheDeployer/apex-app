@@ -2,9 +2,18 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer } from 'recharts'
-import { TrendingUp, TrendingDown, RefreshCw, Zap, Clock } from 'lucide-react'
+import { AreaChart, Area, ResponsiveContainer } from 'recharts'
+import { RefreshCw, Zap, Clock, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import type { Profile, BotConfig, Trade, BotHeartbeat, EquitySnapshot, UserStats } from '@/types'
+
+interface SignalScan {
+  symbol: string
+  strength: number
+  direction: 'LONG' | 'SHORT' | 'NEUTRAL'
+  trigger: string
+  regime?: string
+  rsi?: number
+}
 
 interface Props {
   profile: Profile | null
@@ -13,13 +22,6 @@ interface Props {
   heartbeat: BotHeartbeat | null
   equityHistory: EquitySnapshot[]
   stats: UserStats | null
-}
-
-const REGIME_COLOUR: Record<string, string> = {
-  TRENDING_UP: 'text-green',
-  TRENDING_DOWN: 'text-red',
-  RANGING: 'text-blue',
-  VOLATILE: 'text-gold',
 }
 
 function fmt(n: number | null | undefined) {
@@ -41,6 +43,24 @@ function timeSince(date: string | Date) {
   const hrs = Math.floor(mins / 60)
   if (hrs < 24) return `${hrs}h`
   return `${Math.floor(hrs / 24)}d`
+}
+
+function getSignalColor(strength: number): string {
+  if (strength >= 70) return 'bg-green'
+  if (strength >= 30) return 'bg-yellow-500'
+  return 'bg-red'
+}
+
+function getSignalBgColor(strength: number): string {
+  if (strength >= 70) return 'bg-green/10 border-green/30'
+  if (strength >= 30) return 'bg-yellow-500/10 border-yellow-500/30'
+  return 'bg-white/5 border-white/10'
+}
+
+function getSignalTextColor(strength: number): string {
+  if (strength >= 70) return 'text-green'
+  if (strength >= 30) return 'text-yellow-500'
+  return 'text-muted'
 }
 
 export default function DashboardClient({ profile, config, trades, heartbeat, equityHistory, stats }: Props) {
@@ -83,6 +103,9 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
   const closedTrades = trades.filter(t => t.closed_at)
   const unrealizedPnl = openTrades.reduce((sum, t) => sum + ((t as any).unrealized_pnl ?? 0), 0)
 
+  // Signal radar from heartbeat
+  const signalRadar: SignalScan[] = (heartbeat as any)?.signal_radar ?? []
+
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto">
       {/* Header */}
@@ -118,6 +141,64 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
           <p className="text-[10px] text-muted uppercase">Win%</p>
           <p className="text-sm font-bold">{totalTrades > 0 ? `${winRate.toFixed(0)}%` : '—'}</p>
         </div>
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* SIGNAL RADAR - Traffic Light System */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      <div className="bg-surface rounded-lg p-3 mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-[10px] text-muted uppercase font-medium">Signal Radar</p>
+          <div className="flex items-center gap-2 text-[9px] text-muted">
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red" />Cold</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500" />Warm</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green" />Hot</span>
+          </div>
+        </div>
+        
+        {signalRadar.length > 0 ? (
+          <div className="grid grid-cols-5 gap-2">
+            {signalRadar.map((scan) => (
+              <div
+                key={scan.symbol}
+                className={`rounded-lg border p-2 text-center transition-all ${getSignalBgColor(scan.strength)}`}
+              >
+                {/* Symbol */}
+                <p className="text-xs font-bold mb-1">{scan.symbol}</p>
+                
+                {/* Traffic light indicator */}
+                <div className="flex justify-center mb-1">
+                  <div className={`w-3 h-3 rounded-full ${getSignalColor(scan.strength)} ${scan.strength >= 70 ? 'animate-pulse' : ''}`} />
+                </div>
+                
+                {/* Strength percentage */}
+                <p className={`text-sm font-bold ${getSignalTextColor(scan.strength)}`}>
+                  {scan.strength}%
+                </p>
+                
+                {/* Direction arrow */}
+                <div className="flex justify-center mt-1">
+                  {scan.direction === 'LONG' ? (
+                    <TrendingUp className="w-3 h-3 text-green" />
+                  ) : scan.direction === 'SHORT' ? (
+                    <TrendingDown className="w-3 h-3 text-red" />
+                  ) : (
+                    <Minus className="w-3 h-3 text-muted" />
+                  )}
+                </div>
+                
+                {/* RSI if available */}
+                {scan.rsi && (
+                  <p className="text-[9px] text-muted mt-1">RSI {scan.rsi}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-4 text-xs text-muted">
+            Signal data will appear when bot is running
+          </div>
+        )}
       </div>
 
       {/* Active Positions */}
@@ -192,10 +273,9 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
             })}
           </div>
         ) : (
-          <div className="px-3 py-6 text-center">
+          <div className="px-3 py-4 text-center">
             <Zap className="w-5 h-5 text-muted mx-auto mb-1" />
             <p className="text-xs text-muted">Scanning for opportunities</p>
-            <p className="text-[10px] text-subtle">{heartbeat?.regime?.replace('_', ' ') ?? '—'}</p>
           </div>
         )}
       </div>
@@ -218,14 +298,18 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
         </div>
       )}
 
-      {/* Market + Recent */}
+      {/* Market + Stats */}
       <div className="grid grid-cols-2 gap-3 mb-4">
         <div className="bg-surface rounded-lg p-3">
           <p className="text-[10px] text-muted uppercase mb-2">Market</p>
           <div className="space-y-1">
             <div className="flex justify-between text-xs">
               <span className="text-muted">Regime</span>
-              <span className={REGIME_COLOUR[heartbeat?.regime ?? ''] ?? 'text-muted'}>{heartbeat?.regime?.replace('_', ' ') ?? '—'}</span>
+              <span className={
+                heartbeat?.regime === 'TRENDING_UP' ? 'text-green' :
+                heartbeat?.regime === 'TRENDING_DOWN' ? 'text-red' :
+                heartbeat?.regime === 'VOLATILE' ? 'text-gold' : 'text-blue'
+              }>{heartbeat?.regime?.replace('_', ' ') ?? '—'}</span>
             </div>
             <div className="flex justify-between text-xs">
               <span className="text-muted">Macro</span>
