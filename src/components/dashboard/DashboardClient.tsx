@@ -4,7 +4,7 @@ import AIChatWidget from '@/components/AIChatWidget'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { AreaChart, Area, ResponsiveContainer } from 'recharts'
-import { RefreshCw, Zap, Clock, TrendingUp, TrendingDown, Minus, Settings, AlertTriangle, X, Info, ChevronDown, ChevronUp, Power, Target, Crown, Crosshair, Trophy, BarChart3, ArrowRight, Sparkles } from 'lucide-react'
+import { RefreshCw, Zap, Clock, TrendingUp, TrendingDown, Minus, Settings, AlertTriangle, X, Info, ChevronDown, ChevronUp, Power, Target, Crown, Crosshair, Trophy, BarChart3, ArrowRight, Sparkles, Activity } from 'lucide-react'
 import type { Profile, BotConfig, Trade, BotHeartbeat, EquitySnapshot, UserStats } from '@/types'
 
 interface SignalScan {
@@ -45,7 +45,8 @@ const STRATEGIES = [
     glow: 'shadow-purple-500/20',
     desc: 'Adapts to market regime automatically',
     style: 'Hybrid',
-    holdTime: 'Varies'
+    holdTime: 'Varies',
+    regimes: ['TRENDING_UP', 'TRENDING_DOWN', 'RANGING', 'VOLATILE', 'UNKNOWN']
   },
   { 
     id: 'momentum_rider', 
@@ -57,7 +58,8 @@ const STRATEGIES = [
     glow: 'shadow-emerald-500/20',
     desc: 'Ride strong trends with RSI + MACD confirmation',
     style: 'Trend',
-    holdTime: 'Hours-Days'
+    holdTime: 'Hours-Days',
+    regimes: ['TRENDING_UP', 'TRENDING_DOWN']
   },
   { 
     id: 'dip_hunter', 
@@ -69,7 +71,8 @@ const STRATEGIES = [
     glow: 'shadow-blue-500/20',
     desc: 'Buy oversold, sell overbought at Bollinger extremes',
     style: 'Mean Reversion',
-    holdTime: 'Hours'
+    holdTime: 'Hours',
+    regimes: ['RANGING']
   },
   { 
     id: 'breakout_blitz', 
@@ -81,7 +84,8 @@ const STRATEGIES = [
     glow: 'shadow-yellow-500/20',
     desc: 'Catch range breakouts on high momentum',
     style: 'Breakout',
-    holdTime: 'Hours-Days'
+    holdTime: 'Hours-Days',
+    regimes: ['VOLATILE', 'TRENDING_UP', 'TRENDING_DOWN']
   },
   { 
     id: 'scalp_sniper', 
@@ -93,7 +97,8 @@ const STRATEGIES = [
     glow: 'shadow-red-500/20',
     desc: 'Quick trades on micro pullbacks, tight SL/TP',
     style: 'Scalping',
-    holdTime: 'Minutes-Hours'
+    holdTime: 'Minutes-Hours',
+    regimes: ['RANGING']
   },
   { 
     id: 'swing_king', 
@@ -105,7 +110,8 @@ const STRATEGIES = [
     glow: 'shadow-amber-500/20',
     desc: 'Larger moves, wider stops, patient entries',
     style: 'Swing',
-    holdTime: 'Days-Weeks'
+    holdTime: 'Days-Weeks',
+    regimes: ['TRENDING_UP', 'TRENDING_DOWN']
   },
 ]
 
@@ -114,7 +120,45 @@ const RISK_LEVELS = [
   { id: 'medium', name: 'Medium', pct: '4%' },
   { id: 'high', name: 'High', pct: '6%' },
 ]
-// Map bot strategy names to our strategy IDs
+
+const REGIME_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any; description: string }> = {
+  'TRENDING_UP': { 
+    label: 'Trending Up', 
+    color: 'text-green', 
+    bg: 'bg-green/10 border-green/30',
+    icon: TrendingUp,
+    description: 'Strong bullish momentum detected'
+  },
+  'TRENDING_DOWN': { 
+    label: 'Trending Down', 
+    color: 'text-red', 
+    bg: 'bg-red/10 border-red/30',
+    icon: TrendingDown,
+    description: 'Strong bearish momentum detected'
+  },
+  'RANGING': { 
+    label: 'Ranging', 
+    color: 'text-blue-400', 
+    bg: 'bg-blue-500/10 border-blue-500/30',
+    icon: Minus,
+    description: 'Sideways price action, mean reversion favored'
+  },
+  'VOLATILE': { 
+    label: 'Volatile', 
+    color: 'text-amber-400', 
+    bg: 'bg-amber-500/10 border-amber-500/30',
+    icon: Activity,
+    description: 'High volatility, breakouts likely'
+  },
+  'UNKNOWN': { 
+    label: 'Analyzing...', 
+    color: 'text-muted', 
+    bg: 'bg-white/5 border-white/10',
+    icon: Activity,
+    description: 'Gathering market data'
+  },
+}
+
 function normalizeStrategyId(strategy: string | undefined): string {
   if (!strategy) return 'unknown'
   const s = strategy.toLowerCase()
@@ -134,6 +178,13 @@ function getStrategyDisplay(strategy: string | undefined): { name: string; color
     return { name: strat.name, color: strat.color, bg: strat.bg }
   }
   return { name: strategy || 'Unknown', color: 'text-white/60', bg: 'bg-white/10 border-white/20' }
+}
+
+function getRecommendedStrategies(regime: string | undefined): string[] {
+  const normalizedRegime = regime || 'UNKNOWN'
+  return STRATEGIES
+    .filter(s => s.regimes.includes(normalizedRegime))
+    .map(s => s.id)
 }
 
 function fmt(n: number | null | undefined) {
@@ -185,6 +236,11 @@ export default function DashboardClient({
 
   const [autoTrading, setAutoTrading] = useState(botEnabled)
   const [togglingAutoTrading, setTogglingAutoTrading] = useState(false)
+
+  const currentRegime = heartbeat?.regime || 'UNKNOWN'
+  const regimeConfig = REGIME_CONFIG[currentRegime] || REGIME_CONFIG['UNKNOWN']
+  const recommendedStrategies = getRecommendedStrategies(currentRegime)
+  const isCurrentStrategyRecommended = recommendedStrategies.includes(strategy)
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -318,7 +374,6 @@ export default function DashboardClient({
         </div>
       </div>
 
-      {/* Auto-Trading Paused Warning */}
       {!autoTrading && (
         <div className="flex items-center gap-2 p-2 rounded-lg bg-red/10 border border-red/20 mb-4">
           <AlertTriangle className="w-4 h-4 text-red flex-shrink-0" />
@@ -326,17 +381,65 @@ export default function DashboardClient({
         </div>
       )}
 
-      {/* ═══════════════════════════════════════════════════════════════════════
-          STRATEGY HERO CARD
-      ═══════════════════════════════════════════════════════════════════════ */}
+      {/* MARKET STATUS BANNER */}
+      <div className={`rounded-xl border p-3 mb-4 ${regimeConfig.bg}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-lg ${regimeConfig.bg}`}>
+              <regimeConfig.icon className={`w-5 h-5 ${regimeConfig.color}`} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className={`text-sm font-bold ${regimeConfig.color}`}>{regimeConfig.label}</span>
+                <span className="text-[10px] text-muted">• Live Market Status</span>
+              </div>
+              <p className="text-xs text-white/60">{regimeConfig.description}</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-[10px] text-muted mb-1">Recommended:</p>
+            <div className="flex flex-wrap gap-1 justify-end">
+              {recommendedStrategies.slice(0, 3).map(stratId => {
+                const strat = STRATEGIES.find(s => s.id === stratId)
+                if (!strat) return null
+                return (
+                  <span 
+                    key={stratId} 
+                    className={`text-[10px] px-1.5 py-0.5 rounded border ${strat.bg} ${strat.color}`}
+                  >
+                    {strat.name}
+                  </span>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+        
+        {!isCurrentStrategyRecommended && currentRegime !== 'UNKNOWN' && (
+          <div className="mt-3 pt-3 border-t border-white/10">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+              <p className="text-xs text-amber-400">
+                <span className="font-medium">{currentStrat.name}</span> may underperform in {regimeConfig.label.toLowerCase()} markets. 
+                <button 
+                  onClick={() => setShowStrategyPicker(true)}
+                  className="ml-1 underline hover:no-underline"
+                >
+                  Switch strategy?
+                </button>
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* STRATEGY HERO CARD */}
       <div 
         className={`relative overflow-hidden rounded-xl border mb-4 bg-gradient-to-br ${currentStrat.gradient} ${currentStrat.bg} shadow-lg ${currentStrat.glow}`}
       >
-        {/* Animated glow effect */}
         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full animate-shimmer" />
         
         <div className="relative p-4">
-          {/* Top row: Icon, Name, Change button */}
           <div className="flex items-start justify-between mb-3">
             <div className="flex items-center gap-3">
               <div className={`p-2.5 rounded-xl ${currentStrat.bg} border`}>
@@ -346,6 +449,12 @@ export default function DashboardClient({
                 <div className="flex items-center gap-2">
                   <h2 className={`text-lg font-bold ${currentStrat.color}`}>{currentStrat.name}</h2>
                   <span className="px-2 py-0.5 rounded-full bg-white/10 text-[10px] font-medium text-white/70">ACTIVE</span>
+                  {isCurrentStrategyRecommended && currentRegime !== 'UNKNOWN' && (
+                    <span className="px-2 py-0.5 rounded-full bg-green/20 text-[10px] font-medium text-green flex items-center gap-1">
+                      <Sparkles className="w-2.5 h-2.5" />
+                      Optimal
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-white/60 mt-0.5">{currentStrat.desc}</p>
               </div>
@@ -359,7 +468,6 @@ export default function DashboardClient({
             </button>
           </div>
 
-          {/* Style badges */}
           <div className="flex items-center gap-2 mb-4">
             <span className="px-2 py-1 rounded-lg bg-white/10 text-[11px] font-medium">{currentStrat.style}</span>
             <span className="px-2 py-1 rounded-lg bg-white/10 text-[11px] font-medium flex items-center gap-1">
@@ -369,7 +477,6 @@ export default function DashboardClient({
             <span className="px-2 py-1 rounded-lg bg-white/10 text-[11px] font-medium">{currentRisk.pct} Risk</span>
           </div>
 
-          {/* Performance stats */}
           <div className="grid grid-cols-4 gap-3">
             <div className="bg-black/20 rounded-lg p-2.5 text-center">
               <p className="text-[10px] text-white/50 uppercase mb-1">Trades</p>
@@ -401,7 +508,9 @@ export default function DashboardClient({
             <div className="flex items-center justify-between mb-5">
               <div>
                 <h2 className="text-xl font-bold">Choose Strategy</h2>
-                <p className="text-sm text-muted mt-1">Select a trading strategy for the bot</p>
+                <p className="text-sm text-muted mt-1">
+                  Market is <span className={regimeConfig.color}>{regimeConfig.label.toLowerCase()}</span> — recommended strategies highlighted
+                </p>
               </div>
               <button onClick={() => setShowStrategyPicker(false)} className="p-2 text-muted hover:text-white rounded-lg hover:bg-white/5">
                 <X className="w-5 h-5" />
@@ -412,6 +521,7 @@ export default function DashboardClient({
               {STRATEGIES.map((s) => {
                 const Icon = s.icon
                 const isActive = strategy === s.id
+                const isRecommended = recommendedStrategies.includes(s.id)
                 const sStats = strategyStats[s.id] || strategyStats[s.id?.toUpperCase()] || { trades: 0, wins: 0, losses: 0, pnl: 0 }
                 const winRate = sStats.trades > 0 ? ((sStats.wins / sStats.trades) * 100).toFixed(0) : '—'
                 
@@ -423,21 +533,29 @@ export default function DashboardClient({
                     className={`relative p-4 rounded-xl border text-left transition-all ${
                       isActive 
                         ? `${s.bg} ring-2 ring-offset-2 ring-offset-black ${s.color.replace('text-', 'ring-')}`
-                        : 'bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/10'
+                        : isRecommended
+                        ? `${s.bg} hover:ring-1 ${s.color.replace('text-', 'hover:ring-')}`
+                        : 'bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/10 opacity-60 hover:opacity-100'
                     } ${saving ? 'opacity-50' : ''}`}
                   >
-                    {isActive && (
-                      <div className="absolute top-2 right-2">
+                    <div className="absolute top-2 right-2 flex gap-1">
+                      {isRecommended && !isActive && (
+                        <span className="px-2 py-0.5 rounded-full bg-green/20 text-[9px] font-bold text-green flex items-center gap-1">
+                          <Sparkles className="w-2.5 h-2.5" />
+                          Recommended
+                        </span>
+                      )}
+                      {isActive && (
                         <span className="px-2 py-0.5 rounded-full bg-white/20 text-[9px] font-bold uppercase">Current</span>
-                      </div>
-                    )}
+                      )}
+                    </div>
                     
                     <div className="flex items-center gap-3 mb-2">
-                      <div className={`p-2 rounded-lg ${isActive ? s.bg : 'bg-white/10'}`}>
-                        <Icon className={`w-5 h-5 ${isActive ? s.color : 'text-muted'}`} />
+                      <div className={`p-2 rounded-lg ${isActive || isRecommended ? s.bg : 'bg-white/10'}`}>
+                        <Icon className={`w-5 h-5 ${isActive || isRecommended ? s.color : 'text-muted'}`} />
                       </div>
                       <div>
-                        <h3 className={`font-bold ${isActive ? s.color : ''}`}>{s.name}</h3>
+                        <h3 className={`font-bold ${isActive || isRecommended ? s.color : ''}`}>{s.name}</h3>
                         <p className="text-[11px] text-muted">{s.desc}</p>
                       </div>
                     </div>
@@ -447,7 +565,6 @@ export default function DashboardClient({
                       <span className="text-[10px] text-muted">{s.holdTime}</span>
                     </div>
                     
-                    {/* Strategy stats */}
                     <div className="grid grid-cols-4 gap-2 pt-2 border-t border-white/10">
                       <div className="text-center">
                         <p className="text-[9px] text-muted">Trades</p>
@@ -526,7 +643,7 @@ export default function DashboardClient({
                   <div className={`w-3 h-3 rounded-full ${getSignalColor(scan.strength)} ${scan.strength >= 70 ? 'animate-pulse' : ''}`} />
                 </div>
                 <p className={`text-sm font-bold ${scan.strength >= 70 ? 'text-green' : scan.strength >= 30 ? 'text-yellow-500' : 'text-muted'}`}>
-                {Math.round(scan.strength)}%
+                  {Math.round(scan.strength)}%
                 </p>
                 <div className="flex justify-center mt-1">
                   {scan.direction === 'LONG' ? <TrendingUp className="w-3 h-3 text-green" /> : 
@@ -540,29 +657,29 @@ export default function DashboardClient({
           <div className="text-center py-4 text-xs text-muted">Signal data appears when bot runs</div>
         )}
       </div>
-{/* TradingView Charts */}
-<div className="mb-4">
-  <div className="flex items-center justify-between mb-2">
-    <p className="text-[10px] text-muted uppercase font-medium">Live Charts</p>
-  </div>
-  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
-    {['BTC', 'ETH', 'SOL', 'ARB', 'DOGE'].map((symbol) => (
-      <div key={symbol} className="bg-surface rounded-lg overflow-hidden">
-        <div className="px-2 py-1.5 border-b border-white/10">
-          <p className="text-[10px] text-muted uppercase font-medium">{symbol}</p>
-        </div>
-        <iframe
-          src={`https://s.tradingview.com/widgetembed/?symbol=BINANCE:${symbol}USDT&interval=60&theme=dark&style=1&hide_top_toolbar=1&hide_legend=1&save_image=0&hide_volume=1&withdateranges=0`}
-          width="100%"
-          height="150"
-          frameBorder="0"
-        />
-      </div>
-    ))}
-  </div>
-</div>
 
-{/* Active Positions */}
+      {/* TradingView Charts */}
+      <div className="mb-4">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[10px] text-muted uppercase font-medium">Live Charts</p>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+          {['BTC', 'ETH', 'SOL', 'ARB', 'DOGE'].map((symbol) => (
+            <div key={symbol} className="bg-surface rounded-lg overflow-hidden">
+              <div className="px-2 py-1.5 border-b border-white/10">
+                <p className="text-[10px] text-muted uppercase font-medium">{symbol}</p>
+              </div>
+              <iframe
+                src={`https://s.tradingview.com/widgetembed/?symbol=BINANCE:${symbol}USDT&interval=60&theme=dark&style=1&hide_top_toolbar=1&hide_legend=1&save_image=0&hide_volume=1&withdateranges=0`}
+                width="100%"
+                height="150"
+                frameBorder="0"
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Active Positions */}
       <div className={`rounded-lg border mb-4 ${openTrades.length > 0 ? 'border-green/30 bg-green/[0.02]' : 'border-white/10 bg-surface'}`}>
         <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
@@ -623,15 +740,14 @@ export default function DashboardClient({
                       <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${t.side === 'LONG' ? 'bg-green/20 text-green' : 'bg-red/20 text-red'}`}>{t.side}</span>
                       <span className="text-sm font-medium">{t.symbol}</span>
                       <span className="text-[10px] text-muted">{t.leverage}x</span>
-                      {/* Strategy badge */}
-{t.strategy && (() => {
-  const stratDisplay = getStrategyDisplay(t.strategy)
-  return (
-    <span className={`text-[10px] px-1.5 py-0.5 rounded border ${stratDisplay.bg} ${stratDisplay.color}`}>
-      {stratDisplay.name}
-    </span>
-  )
-})()}
+                      {t.strategy && (() => {
+                        const stratDisplay = getStrategyDisplay(t.strategy)
+                        return (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded border ${stratDisplay.bg} ${stratDisplay.color}`}>
+                            {stratDisplay.name}
+                          </span>
+                        )
+                      })()}
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="flex items-center gap-1 text-[10px] text-muted">
@@ -748,16 +864,13 @@ export default function DashboardClient({
                       <span className={`text-[10px] font-bold ${t.side === 'LONG' ? 'text-green' : 'text-red'}`}>{t.side}</span>
                       <span className="text-xs">{t.symbol}</span>
                       {(t as any).strategy && (() => {
-  const stratDisplay = getStrategyDisplay((t as any).strategy)
-  return (
-    <span className={`text-[9px] px-1.5 py-0.5 rounded border ${stratDisplay.bg} ${stratDisplay.color}`}>
-      {stratDisplay.name}
-    </span>
-  )
-})()}
-                      {(t as any).strategy && (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-muted">{(t as any).strategy}</span>
-                      )}
+                        const stratDisplay = getStrategyDisplay((t as any).strategy)
+                        return (
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded border ${stratDisplay.bg} ${stratDisplay.color}`}>
+                            {stratDisplay.name}
+                          </span>
+                        )
+                      })()}
                     </div>
                     <div className="flex items-center gap-2">
                       <span className={`text-xs font-bold ${(t.pnl ?? 0) >= 0 ? 'text-green' : 'text-red'}`}>{fmtSigned(t.pnl)}</span>
@@ -792,11 +905,7 @@ export default function DashboardClient({
           <div className="space-y-1">
             <div className="flex justify-between text-xs">
               <span className="text-muted">Regime</span>
-              <span className={
-                heartbeat?.regime === 'TRENDING_UP' ? 'text-green' :
-                heartbeat?.regime === 'TRENDING_DOWN' ? 'text-red' :
-                heartbeat?.regime === 'VOLATILE' ? 'text-amber-400' : 'text-blue'
-              }>{heartbeat?.regime?.replace('_', ' ') ?? '—'}</span>
+              <span className={regimeConfig.color}>{regimeConfig.label}</span>
             </div>
             <div className="flex justify-between text-xs">
               <span className="text-muted">Macro</span>
