@@ -113,6 +113,27 @@ const RISK_LEVELS = [
   { id: 'medium', name: 'Medium', pct: '4%' },
   { id: 'high', name: 'High', pct: '6%' },
 ]
+// Map bot strategy names to our strategy IDs
+function normalizeStrategyId(strategy: string | undefined): string {
+  if (!strategy) return 'unknown'
+  const s = strategy.toLowerCase()
+  if (s.includes('momentum')) return 'momentum_rider'
+  if (s.includes('dip') || s.includes('mean')) return 'dip_hunter'
+  if (s.includes('breakout')) return 'breakout_blitz'
+  if (s.includes('scalp')) return 'scalp_sniper'
+  if (s.includes('swing')) return 'swing_king'
+  if (s.includes('apex') || s.includes('adaptive')) return 'apex_adaptive'
+  return s.replace(/_/g, ' ')
+}
+
+function getStrategyDisplay(strategy: string | undefined): { name: string; color: string; bg: string } {
+  const id = normalizeStrategyId(strategy)
+  const strat = STRATEGIES.find(s => s.id === id)
+  if (strat) {
+    return { name: strat.name, color: strat.color, bg: strat.bg }
+  }
+  return { name: strategy || 'Unknown', color: 'text-white/60', bg: 'bg-white/10 border-white/20' }
+}
 
 function fmt(n: number | null | undefined) {
   if (n == null) return '—'
@@ -579,6 +600,15 @@ export default function DashboardClient({
                       <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${t.side === 'LONG' ? 'bg-green/20 text-green' : 'bg-red/20 text-red'}`}>{t.side}</span>
                       <span className="text-sm font-medium">{t.symbol}</span>
                       <span className="text-[10px] text-muted">{t.leverage}x</span>
+                      {/* Strategy badge */}
+{t.strategy && (() => {
+  const stratDisplay = getStrategyDisplay(t.strategy)
+  return (
+    <span className={`text-[10px] px-1.5 py-0.5 rounded border ${stratDisplay.bg} ${stratDisplay.color}`}>
+      {stratDisplay.name}
+    </span>
+  )
+})()}
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="flex items-center gap-1 text-[10px] text-muted">
@@ -694,6 +724,14 @@ export default function DashboardClient({
                     <div className="flex items-center gap-2">
                       <span className={`text-[10px] font-bold ${t.side === 'LONG' ? 'text-green' : 'text-red'}`}>{t.side}</span>
                       <span className="text-xs">{t.symbol}</span>
+                      {(t as any).strategy && (() => {
+  const stratDisplay = getStrategyDisplay((t as any).strategy)
+  return (
+    <span className={`text-[9px] px-1.5 py-0.5 rounded border ${stratDisplay.bg} ${stratDisplay.color}`}>
+      {stratDisplay.name}
+    </span>
+  )
+})()}
                       {(t as any).strategy && (
                         <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-muted">{(t as any).strategy}</span>
                       )}
