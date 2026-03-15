@@ -319,6 +319,40 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
               const isProfit = pnl >= 0
               const explanation = (t as any).explanation
               const isExpanded = expandedTrade === t.id
+              
+              // Calculate SL/TP progress
+              const entry = t.entry_price || 0
+              const sl = t.stop_loss || 0
+              const tp = t.take_profit || 0
+              const slDist = Math.abs(entry - sl)
+              const tpDist = Math.abs(tp - entry)
+              const totalRange = slDist + tpDist
+              
+              let progress = 50 // neutral
+              let slPct = 0
+              let tpPct = 0
+              
+              if (current && totalRange > 0) {
+                if (t.side === 'LONG') {
+                  const moved = current - entry
+                  if (moved >= 0) {
+                    tpPct = Math.min(100, (moved / tpDist) * 100)
+                    progress = 50 + (tpPct / 2)
+                  } else {
+                    slPct = Math.min(100, (Math.abs(moved) / slDist) * 100)
+                    progress = 50 - (slPct / 2)
+                  }
+                } else {
+                  const moved = entry - current
+                  if (moved >= 0) {
+                    tpPct = Math.min(100, (moved / tpDist) * 100)
+                    progress = 50 + (tpPct / 2)
+                  } else {
+                    slPct = Math.min(100, (Math.abs(moved) / slDist) * 100)
+                    progress = 50 - (slPct / 2)
+                  }
+                }
+              }
 
               return (
                 <div key={t.id} className="px-3 py-2">
@@ -342,17 +376,40 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
                     </div>
                   </div>
                   
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between mb-2">
                     <div className="text-xs text-muted">
                       ${t.entry_price?.toLocaleString()} → {current ? <span className={isProfit ? 'text-green' : 'text-red'}>${current.toLocaleString()}</span> : '—'}
                     </div>
                     <div className={`text-sm font-bold ${isProfit ? 'text-green' : 'text-red'}`}>{fmtSigned(pnl)}</div>
                   </div>
 
+                  {/* SL/TP Progress Bar */}
+                  <div className="mb-2">
+                    <div className="flex items-center justify-between text-[9px] text-muted mb-1">
+                      <span className="text-red">SL ${sl.toLocaleString()}</span>
+                      <span className={slPct > 0 ? 'text-red' : tpPct > 0 ? 'text-green' : 'text-muted'}>
+                        {slPct > 0 ? `${slPct.toFixed(0)}% to SL` : tpPct > 0 ? `${tpPct.toFixed(0)}% to TP` : 'At entry'}
+                      </span>
+                      <span className="text-green">TP ${tp.toLocaleString()}</span>
+                    </div>
+                    <div className="h-1.5 bg-white/10 rounded-full overflow-hidden relative">
+                      {/* Center marker (entry) */}
+                      <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white/30 z-10" />
+                      {/* Progress indicator */}
+                      <div 
+                        className={`absolute top-0 bottom-0 transition-all duration-300 ${progress >= 50 ? 'bg-green' : 'bg-red'}`}
+                        style={{
+                          left: progress >= 50 ? '50%' : `${progress}%`,
+                          width: progress >= 50 ? `${progress - 50}%` : `${50 - progress}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+
                   {/* Trade Explainer */}
                   {isExpanded && (
                     <div className="mt-2 p-2 rounded-lg bg-white/5 border border-white/10">
-                      <div className="flex items-start gap-2">
+                      <div className="flex items-start gap-2 mb-3">
                         <Info className="w-3 h-3 text-blue mt-0.5 flex-shrink-0" />
                         <div className="text-xs text-muted leading-relaxed">
                           {explanation || (
@@ -367,6 +424,27 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
                           )}
                         </div>
                       </div>
+                      
+                      {/* Manual Override Button */}
+                      <button
+                        onClick={async () => {
+                          if (confirm(`Close ${t.symbol} position now at market price?`)) {
+                            try {
+                              await fetch('/api/bot/close', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ trade_id: t.id, symbol: t.symbol }),
+                              })
+                              router.refresh()
+                            } catch (e) {
+                              console.error('Close failed:', e)
+                            }
+                          }
+                        }}
+                        className="w-full py-1.5 rounded bg-red/20 border border-red/30 text-red text-xs font-medium hover:bg-red/30 transition-all"
+                      >
+                        Close Position Now
+                      </button>
                     </div>
                   )}
                 </div>
