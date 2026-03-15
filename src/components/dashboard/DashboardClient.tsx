@@ -1,5 +1,6 @@
 'use client'
 
+import AIChatWidget from '@/components/AIChatWidget'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { AreaChart, Area, ResponsiveContainer } from 'recharts'
@@ -817,6 +818,7 @@ export default function DashboardClient({
           </div>
         </div>
       </div>
+      <AIChatWidget userId="a040d19d-f40e-44f7-9b90-dead9d9bcfeb" />
     </div>
   )
 }
