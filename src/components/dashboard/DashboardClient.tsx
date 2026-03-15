@@ -32,7 +32,14 @@ function fmt(n: number | null | undefined, prefix = '$') {
   if (n == null) return '—'
   const abs = Math.abs(n)
   const s = abs >= 1000 ? `${prefix}${(abs / 1000).toFixed(1)}k` : `${prefix}${abs.toFixed(2)}`
-  return n < 0 ? `−${s}` : s
+  return n < 0 ? `−${s.replace(prefix, '')}` : s
+}
+
+function fmtSigned(n: number | null | undefined, prefix = '$') {
+  if (n == null) return '—'
+  const abs = Math.abs(n)
+  const s = abs >= 1000 ? `${(abs / 1000).toFixed(1)}k` : abs.toFixed(2)
+  return n >= 0 ? `+${prefix}${s}` : `-${prefix}${s}`
 }
 
 function pct(n: number | null | undefined) {
@@ -50,10 +57,17 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
     equity: e.equity,
   }))
 
-  const todayPnl   = stats?.pnl_today  ?? 0
-  const totalPnl   = stats?.total_pnl  ?? 0
-  const winRate    = stats?.win_rate_pct ?? 0
+  // Use pnl_today from heartbeat (includes unrealized) or fall back to stats
+  const todayPnl = heartbeat?.pnl_today ?? stats?.pnl_today ?? 0
+  const unrealizedPnl = (heartbeat as any)?.unrealized_pnl ?? 0
+  const totalPnl = stats?.total_pnl ?? 0
+  const winRate = stats?.win_rate_pct ?? 0
   const totalTrades = stats?.total_trades ?? 0
+
+  // Calculate unrealized P&L from open trades if not in heartbeat
+  const openTrades = trades.filter(t => !t.closed_at)
+  const tradesUnrealizedPnl = openTrades.reduce((sum, t) => sum + ((t as any).unrealized_pnl ?? 0), 0)
+  const displayUnrealizedPnl = unrealizedPnl || tradesUnrealizedPnl
 
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto">
@@ -97,21 +111,22 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard
           label="Today's P&L"
-          value={fmt(todayPnl)}
+          value={fmtSigned(todayPnl)}
+          sub={displayUnrealizedPnl !== 0 ? `${fmtSigned(displayUnrealizedPnl)} unrealized` : undefined}
           positive={todayPnl >= 0}
           icon={todayPnl >= 0 ? TrendingUp : TrendingDown}
           iconColor={todayPnl >= 0 ? 'text-green' : 'text-red'}
         />
         <StatCard
           label="Total P&L"
-          value={fmt(totalPnl)}
+          value={fmtSigned(totalPnl)}
           positive={totalPnl >= 0}
           icon={TrendingUp}
           iconColor={totalPnl >= 0 ? 'text-green' : 'text-red'}
         />
         <StatCard
           label="Win Rate"
-          value={totalTrades > 0 ? `${winRate}%` : '—'}
+          value={totalTrades > 0 ? `${winRate.toFixed(0)}%` : '—'}
           sub={`${stats?.wins ?? 0}W / ${stats?.losses ?? 0}L`}
           icon={Shield}
           iconColor="text-blue"
@@ -136,6 +151,11 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
                 {heartbeat ? fmt(heartbeat.equity) : '—'}
               </p>
             </div>
+            {displayUnrealizedPnl !== 0 && (
+              <div className={`text-sm font-medium ${displayUnrealizedPnl >= 0 ? 'text-green' : 'text-red'}`}>
+                {fmtSigned(displayUnrealizedPnl)} unrealized
+              </div>
+            )}
           </div>
           {chartData.length > 1 ? (
             <ResponsiveContainer width="100%" height={160}>
@@ -194,8 +214,8 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
                 </div>
                 <div>
                   <p className="text-xs text-subtle">P&L today</p>
-                  <p className={`text-lg font-bold mt-0.5 ${heartbeat.pnl_today >= 0 ? 'text-green' : 'text-red'}`}>
-                    {fmt(heartbeat.pnl_today)}
+                  <p className={`text-lg font-bold mt-0.5 ${(heartbeat.pnl_today ?? 0) >= 0 ? 'text-green' : 'text-red'}`}>
+                    {fmtSigned(heartbeat.pnl_today)}
                   </p>
                 </div>
                 <div>
@@ -230,44 +250,56 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
                   <th className="text-left py-2 pr-4 font-medium">Symbol</th>
                   <th className="text-left py-2 pr-4 font-medium">Side</th>
                   <th className="text-left py-2 pr-4 font-medium">Entry</th>
+                  <th className="text-left py-2 pr-4 font-medium">Current</th>
                   <th className="text-left py-2 pr-4 font-medium">P&L</th>
                   <th className="text-left py-2 pr-4 font-medium">Regime</th>
                   <th className="text-left py-2 font-medium">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.04]">
-                {trades.map(t => (
-                  <tr key={t.id} className="hover:bg-white/[0.02] transition-colors">
-                    <td className="py-2.5 pr-4 font-medium font-mono text-xs">{t.symbol}-PERP</td>
-                    <td className="py-2.5 pr-4">
-                      <span className={t.side === 'LONG' ? 'text-green text-xs font-semibold' : 'text-red text-xs font-semibold'}>
-                        {t.side}
-                      </span>
-                    </td>
-                    <td className="py-2.5 pr-4 font-mono text-xs text-muted">
-                      ${t.entry_price?.toLocaleString()}
-                    </td>
-                    <td className="py-2.5 pr-4 font-mono text-xs">
-                      {t.pnl != null ? (
-                        <span className={t.pnl >= 0 ? 'text-green' : 'text-red'}>
-                          {t.pnl >= 0 ? '+' : ''}{fmt(t.pnl)}
+                {trades.map(t => {
+                  const unrealized = (t as any).unrealized_pnl
+                  const currentPrice = (t as any).current_price
+                  const isOpen = !t.closed_at
+                  const pnlValue = isOpen ? unrealized : t.pnl
+                  const pnlDisplay = pnlValue != null ? pnlValue : null
+                  
+                  return (
+                    <tr key={t.id} className="hover:bg-white/[0.02] transition-colors">
+                      <td className="py-2.5 pr-4 font-medium font-mono text-xs">{t.symbol}-PERP</td>
+                      <td className="py-2.5 pr-4">
+                        <span className={t.side === 'LONG' ? 'text-green text-xs font-semibold' : 'text-red text-xs font-semibold'}>
+                          {t.side}
                         </span>
-                      ) : <span className="text-subtle">Open</span>}
-                    </td>
-                    <td className="py-2.5 pr-4">
-                      <span className="text-xs text-subtle">{t.regime?.replace('_', ' ') ?? '—'}</span>
-                    </td>
-                    <td className="py-2.5">
-                      {t.closed_at ? (
-                        <span className={t.pnl && t.pnl >= 0 ? 'badge-green' : 'badge-red'}>
-                          {t.close_reason ?? 'Closed'}
-                        </span>
-                      ) : (
-                        <span className="badge-blue">Open</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="py-2.5 pr-4 font-mono text-xs text-muted">
+                        ${t.entry_price?.toLocaleString()}
+                      </td>
+                      <td className="py-2.5 pr-4 font-mono text-xs text-muted">
+                        {currentPrice ? `$${currentPrice.toLocaleString()}` : '—'}
+                      </td>
+                      <td className="py-2.5 pr-4 font-mono text-xs">
+                        {pnlDisplay != null ? (
+                          <span className={pnlDisplay >= 0 ? 'text-green' : 'text-red'}>
+                            {fmtSigned(pnlDisplay)}
+                          </span>
+                        ) : <span className="text-subtle">—</span>}
+                      </td>
+                      <td className="py-2.5 pr-4">
+                        <span className="text-xs text-subtle">{t.regime?.replace('_', ' ') ?? '—'}</span>
+                      </td>
+                      <td className="py-2.5">
+                        {t.closed_at ? (
+                          <span className={t.pnl && t.pnl >= 0 ? 'badge-green' : 'badge-red'}>
+                            {t.close_reason ?? 'Closed'}
+                          </span>
+                        ) : (
+                          <span className="badge-blue">Open</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
