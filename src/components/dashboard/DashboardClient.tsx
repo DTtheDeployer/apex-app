@@ -1,8 +1,9 @@
 'use client'
-// src/components/dashboard/DashboardClient.tsx
-import { useState } from 'react'
+
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
-import { TrendingUp, TrendingDown, Activity, Zap, Shield, AlertTriangle } from 'lucide-react'
+import { TrendingUp, TrendingDown, Activity, Zap, Shield, AlertTriangle, RefreshCw } from 'lucide-react'
 import type { Profile, BotConfig, Trade, BotHeartbeat, EquitySnapshot, UserStats } from '@/types'
 
 interface Props {
@@ -48,6 +49,29 @@ function pct(n: number | null | undefined) {
 }
 
 export default function DashboardClient({ profile, config, trades, heartbeat, equityHistory, stats }: Props) {
+  const router = useRouter()
+  const [lastRefresh, setLastRefresh] = useState(new Date())
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  // Auto-refresh every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setIsRefreshing(true)
+      router.refresh()
+      setLastRefresh(new Date())
+      setTimeout(() => setIsRefreshing(false), 500)
+    }, 30000)
+
+    return () => clearInterval(interval)
+  }, [router])
+
+  const handleManualRefresh = () => {
+    setIsRefreshing(true)
+    router.refresh()
+    setLastRefresh(new Date())
+    setTimeout(() => setIsRefreshing(false), 500)
+  }
+
   const botOnline = heartbeat
     ? (Date.now() - new Date(heartbeat.created_at).getTime()) < 2 * 3600 * 1000
     : false
@@ -80,8 +104,18 @@ export default function DashboardClient({ profile, config, trades, heartbeat, eq
           </p>
         </div>
 
-        {/* Bot status */}
+        {/* Bot status & refresh */}
         <div className="flex items-center gap-3">
+          <button 
+            onClick={handleManualRefresh}
+            className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted hover:text-white transition-colors"
+            title={`Last updated: ${lastRefresh.toLocaleTimeString()}`}
+          >
+            <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">
+              {lastRefresh.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          </button>
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-medium
             ${botOnline
               ? 'bg-green/5 border-green/20 text-green'
