@@ -539,7 +539,29 @@ export default function DashboardClient({
           <div className="text-center py-4 text-xs text-muted">Signal data appears when bot runs</div>
         )}
       </div>
+{/* TradingView Charts */}
+<div className="mb-4">
+  <div className="flex items-center justify-between mb-2">
+    <p className="text-[10px] text-muted uppercase font-medium">Live Charts</p>
+  </div>
+  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+    {['BTC', 'ETH', 'SOL', 'ARB', 'DOGE'].map((symbol) => (
+      <div key={symbol} className="bg-surface rounded-lg overflow-hidden">
+        <div className="px-2 py-1.5 border-b border-white/10">
+          <p className="text-[10px] text-muted uppercase font-medium">{symbol}</p>
+        </div>
+        <iframe
+          src={`https://s.tradingview.com/widgetembed/?symbol=BINANCE:${symbol}USDT&interval=60&theme=dark&style=1&hide_top_toolbar=1&hide_legend=1&save_image=0&hide_volume=1&withdateranges=0`}
+          width="100%"
+          height="150"
+          frameBorder="0"
+        />
+      </div>
+    ))}
+  </div>
+</div>
 
+{/* Active Positions */}
       {/* Active Positions */}
       <div className={`rounded-lg border mb-4 ${openTrades.length > 0 ? 'border-green/30 bg-green/[0.02]' : 'border-white/10 bg-surface'}`}>
         <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
