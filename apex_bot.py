@@ -804,6 +804,7 @@ class HyperliquidClient:
                 json={"type": "clearinghouseState", "user": self.wallet_address},
                 timeout=10
             )
+            logger.info(f"🔍 Raw response: {response.status_code} {response.text[:200]}")
             if response.status_code == 200:
                 state = response.json()
                 margin = state.get("crossMarginSummary") or state.get("marginSummary", {})
