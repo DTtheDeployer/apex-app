@@ -800,7 +800,8 @@ class HyperliquidClient:
             return self.paper_balance + unrealized
         try:
             state = self._info.user_state(self.wallet_address)
-            logger.info(f"🔍 State keys: {list(state.keys())}")
+            state = self._info.user_state(self.wallet_address)
+            logger.info(f"🔍 marginSummary: {state.get('marginSummary')}")
             margin = state.get("marginSummary", state.get("crossMarginSummary", {}))
             logger.info(f"🔍 Margin keys: {list(margin.keys()) if margin else 'empty'}")
             value = float(margin.get("accountValue", 0))
