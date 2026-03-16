@@ -803,7 +803,9 @@ class HyperliquidClient:
             logger.info(f"🔍 State keys: {list(state.keys())}")
             margin = state.get("marginSummary", state.get("crossMarginSummary", {}))
             logger.info(f"🔍 Margin keys: {list(margin.keys()) if margin else 'empty'}")
-            return float(margin.get("accountValue", 0))
+            value = float(margin.get("accountValue", 0))
+            logger.info(f"🔍 Account value: {value}")
+            return value
         except Exception as e:
             logger.error(f"Failed to get equity: {e}")
             return 0.0
