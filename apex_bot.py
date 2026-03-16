@@ -799,15 +799,18 @@ class HyperliquidClient:
             unrealized = sum(self._calculate_unrealized_pnl(p) for p in self.paper_positions.values())
             return self.paper_balance + unrealized
         try:
-            state = self._info.user_state(self.wallet_address)
-            # Try crossMarginSummary first, fall back to marginSummary
-            margin = state.get("crossMarginSummary") or state.get("marginSummary", {})
-            value = float(margin.get("accountValue", 0))
-            if value == 0:
-                # Try withdrawable as fallback
-                value = float(state.get("withdrawable", 0))
-            logger.info(f"🔍 Equity: {value}")
-            return value
+            response = self.session.post(
+                self.INFO_URL,
+                json={"type": "clearinghouseState", "user": self.wallet_address},
+                timeout=10
+            )
+            if response.status_code == 200:
+                state = response.json()
+                margin = state.get("crossMarginSummary") or state.get("marginSummary", {})
+                value = float(margin.get("accountValue", 0))
+                logger.info(f"🔍 Equity: {value}")
+                return value
+            return 0.0
         except Exception as e:
             logger.error(f"Failed to get equity: {e}")
             return 0.0
