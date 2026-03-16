@@ -1324,12 +1324,3 @@ class APEXBot:
 if __name__ == "__main__":
     bot = APEXBot()
     bot.start()
-```
-
-Now update `requirements.txt` to:
-```
-requests==2.31.0
-numpy==2.0.0
-python-dotenv==1.0.0
-hyperliquid-python-sdk==0.22.0
-eth-account==0.11.3
