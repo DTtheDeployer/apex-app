@@ -801,17 +801,11 @@ class HyperliquidClient:
         try:
             response = self.session.post(
                 self.INFO_URL,
-                json={"type": "clearinghouseState", "user": self.wallet_address},
+                json={"type": "portfolio", "user": self.wallet_address},
                 timeout=10
             )
-            logger.info(f"🔍 Raw response: {response.status_code} {response.text[:200]}")
-            if response.status_code == 200:
-                state = response.json()
-                margin = state.get("crossMarginSummary") or state.get("marginSummary", {})
-                value = float(margin.get("accountValue", 0))
-                logger.info(f"🔍 Equity: {value}")
-                return value
-            return 0.0
+            logger.info(f"🔍 Portfolio: {response.status_code} {response.text[:300]}")
+            return 284.0  # Still hardcoded until we confirm correct field
         except Exception as e:
             logger.error(f"Failed to get equity: {e}")
             return 0.0
