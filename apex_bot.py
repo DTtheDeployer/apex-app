@@ -173,19 +173,19 @@ STRATEGIES = {
         },
     },
     "scalp_sniper": {
-        "name": "Scalp Sniper",
-        "description": "Quick trades on micro pullbacks, tight SL/TP",
-        "style": "scalping",
-        "hold_time": "minutes-hours",
-        "icon": "🎯",
-        "params": {
-            "rsi_oversold": 40,
-            "rsi_overbought": 60,
-            "min_confidence": 0.45,
-            "atr_sl_mult": 1.0,
-            "atr_tp_mult": 1.5,
-        },
+    "name": "Scalp Sniper",
+    "description": "Quick trades on micro pullbacks in ranging markets only",
+    "style": "scalping",
+    "hold_time": "minutes-hours",
+    "icon": "🎯",
+    "params": {
+        "rsi_oversold": 32,        # was 40
+        "rsi_overbought": 68,      # was 60
+        "min_confidence": 0.52,    # was 0.45
+        "atr_sl_mult": 1.5,        # was 1.0
+        "atr_tp_mult": 2.0,        # was 1.5
     },
+},
     "swing_king": {
         "name": "Swing King",
         "description": "Larger moves, wider stops, patient entries",
@@ -697,59 +697,63 @@ class SignalEngine:
     # ═══════════════════════════════════════════════════════════════════════════
     # STRATEGY: SCALP SNIPER
     # ═══════════════════════════════════════════════════════════════════════════
-    def _strategy_scalp_sniper(self, symbol, params, regime, macro_context,
-                                current_price, rsi, sma_20, bb_upper, bb_lower, bb_mid, atr):
+def _strategy_scalp_sniper(self, symbol, params, regime, macro_context,
+                            current_price, rsi, sma_20, bb_upper, bb_lower, bb_mid, atr):
+    
+    # Only scalp in ranging markets - never fight a trend
+    if regime in [Regime.TRENDING_UP, Regime.TRENDING_DOWN, Regime.UNKNOWN]:
+        return None
+    
+    signal = None
+    
+    # Quick LONG: RSI oversold, price near lower BB
+    if rsi < params["rsi_oversold"]:
+        bb_position = (current_price - bb_lower) / (bb_upper - bb_lower) if (bb_upper - bb_lower) > 0 else 0.5
         
-        signal = None
-        
-        # Quick LONG: RSI oversold, price near lower BB
-        if rsi < params["rsi_oversold"]:
-            bb_position = (current_price - bb_lower) / (bb_upper - bb_lower) if (bb_upper - bb_lower) > 0 else 0.5
+        if bb_position < 0.3:
+            confidence = min(0.7, 0.45 + (params["rsi_oversold"] - rsi) / 80)
+            stop_loss = current_price - (params["atr_sl_mult"] * atr)
+            take_profit = current_price + (params["atr_tp_mult"] * atr)
             
-            if bb_position < 0.3:  # Near lower band
-                confidence = min(0.7, 0.45 + (params["rsi_oversold"] - rsi) / 80)
-                stop_loss = current_price - (params["atr_sl_mult"] * atr)
-                take_profit = current_price + (params["atr_tp_mult"] * atr)
-                
-                explanation = (
-                    f"🎯 Scalp Sniper: Quick long setup. RSI oversold at {rsi:.0f}, "
-                    f"price near lower BB. Tight SL/TP for quick profit."
-                )
-                
-                signal = Signal(
-                    type=SignalType.LONG, symbol=symbol, confidence=confidence,
-                    strategy="SCALP_SNIPER", entry_price=current_price,
-                    stop_loss=stop_loss, take_profit=take_profit,
-                    regime=regime, macro=macro_context,
-                    explanation=explanation, rsi=rsi, macd=0
-                )
-        
-        # Quick SHORT: RSI overbought, price near upper BB
-        elif rsi > params["rsi_overbought"]:
-            bb_position = (current_price - bb_lower) / (bb_upper - bb_lower) if (bb_upper - bb_lower) > 0 else 0.5
+            explanation = (
+                f"🎯 Scalp Sniper: Quick long setup. RSI oversold at {rsi:.0f}, "
+                f"price near lower BB in ranging market. Tight SL/TP for quick profit."
+            )
             
-            if bb_position > 0.7:  # Near upper band
-                confidence = min(0.7, 0.45 + (rsi - params["rsi_overbought"]) / 80)
-                stop_loss = current_price + (params["atr_sl_mult"] * atr)
-                take_profit = current_price - (params["atr_tp_mult"] * atr)
-                
-                explanation = (
-                    f"🎯 Scalp Sniper: Quick short setup. RSI overbought at {rsi:.0f}, "
-                    f"price near upper BB. Tight SL/TP for quick profit."
-                )
-                
-                signal = Signal(
-                    type=SignalType.SHORT, symbol=symbol, confidence=confidence,
-                    strategy="SCALP_SNIPER", entry_price=current_price,
-                    stop_loss=stop_loss, take_profit=take_profit,
-                    regime=regime, macro=macro_context,
-                    explanation=explanation, rsi=rsi, macd=0
-                )
+            signal = Signal(
+                type=SignalType.LONG, symbol=symbol, confidence=confidence,
+                strategy="SCALP_SNIPER", entry_price=current_price,
+                stop_loss=stop_loss, take_profit=take_profit,
+                regime=regime, macro=macro_context,
+                explanation=explanation, rsi=rsi, macd=0
+            )
+    
+    # Quick SHORT: RSI overbought, price near upper BB
+    elif rsi > params["rsi_overbought"]:
+        bb_position = (current_price - bb_lower) / (bb_upper - bb_lower) if (bb_upper - bb_lower) > 0 else 0.5
         
-        if signal and signal.confidence < params["min_confidence"]:
-            return None
-        
-        return signal
+        if bb_position > 0.7:
+            confidence = min(0.7, 0.45 + (rsi - params["rsi_overbought"]) / 80)
+            stop_loss = current_price + (params["atr_sl_mult"] * atr)
+            take_profit = current_price - (params["atr_tp_mult"] * atr)
+            
+            explanation = (
+                f"🎯 Scalp Sniper: Quick short setup. RSI overbought at {rsi:.0f}, "
+                f"price near upper BB in ranging market. Tight SL/TP for quick profit."
+            )
+            
+            signal = Signal(
+                type=SignalType.SHORT, symbol=symbol, confidence=confidence,
+                strategy="SCALP_SNIPER", entry_price=current_price,
+                stop_loss=stop_loss, take_profit=take_profit,
+                regime=regime, macro=macro_context,
+                explanation=explanation, rsi=rsi, macd=0
+            )
+    
+    if signal and signal.confidence < params["min_confidence"]:
+        return None
+    
+    return signal
     
     # ═══════════════════════════════════════════════════════════════════════════
     # STRATEGY: SWING KING
