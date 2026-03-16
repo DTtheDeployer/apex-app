@@ -800,12 +800,13 @@ class HyperliquidClient:
             return self.paper_balance + unrealized
         try:
             state = self._info.user_state(self.wallet_address)
-            state = self._info.user_state(self.wallet_address)
-            logger.info(f"🔍 marginSummary: {state.get('marginSummary')}")
-            margin = state.get("marginSummary", state.get("crossMarginSummary", {}))
-            logger.info(f"🔍 Margin keys: {list(margin.keys()) if margin else 'empty'}")
+            # Try crossMarginSummary first, fall back to marginSummary
+            margin = state.get("crossMarginSummary") or state.get("marginSummary", {})
             value = float(margin.get("accountValue", 0))
-            logger.info(f"🔍 Account value: {value}")
+            if value == 0:
+                # Try withdrawable as fallback
+                value = float(state.get("withdrawable", 0))
+            logger.info(f"🔍 Equity: {value}")
             return value
         except Exception as e:
             logger.error(f"Failed to get equity: {e}")
