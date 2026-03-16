@@ -804,8 +804,14 @@ class HyperliquidClient:
                 json={"type": "portfolio", "user": self.wallet_address},
                 timeout=10
             )
-            logger.info(f"🔍 Portfolio: {response.status_code} {response.text[:300]}")
-            return 284.0  # Still hardcoded until we confirm correct field
+            if response.status_code == 200:
+                data = response.json()
+                # Get latest account value from day history
+                day_data = next((d[1] for d in data if d[0] == "day"), None)
+                if day_data and day_data.get("accountValueHistory"):
+                    latest = day_data["accountValueHistory"][-1][1]
+                    return float(latest)
+            return 0.0
         except Exception as e:
             logger.error(f"Failed to get equity: {e}")
             return 0.0
