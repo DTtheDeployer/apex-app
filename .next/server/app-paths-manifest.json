@@ -1,23 +1,3 @@
 {
-  "/_not-found/page": "app/_not-found/page.js",
-  "/api/auth/signup/route": "app/api/auth/signup/route.js",
-  "/api/bot/close/route": "app/api/bot/close/route.js",
-  "/api/bot/settings/route": "app/api/bot/settings/route.js",
-  "/api/bot/manual-trade/route": "app/api/bot/manual-trade/route.js",
-  "/api/chat/route": "app/api/chat/route.js",
-  "/api/stripe/checkout/route": "app/api/stripe/checkout/route.js",
-  "/api/webhooks/stripe/route": "app/api/webhooks/stripe/route.js",
-  "/api/bot/positions/route": "app/api/bot/positions/route.js",
-  "/auth/callback/route": "app/auth/callback/route.js",
-  "/login/page": "app/login/page.js",
-  "/api/bot/sync/route": "app/api/bot/sync/route.js",
-  "/api/auth/login/route": "app/api/auth/login/route.js",
-  "/api/stripe/portal/route": "app/api/stripe/portal/route.js",
-  "/api/prices/route": "app/api/prices/route.js",
-  "/page": "app/page.js",
-  "/settings/billing/page": "app/settings/billing/page.js",
-  "/dashboard/manual/page": "app/dashboard/manual/page.js",
-  "/settings/page": "app/settings/page.js",
-  "/dashboard/page": "app/dashboard/page.js",
-  "/dashboard/trades/page": "app/dashboard/trades/page.js"
+  "/_not-found/page": "app/_not-found/page.js"
 }
