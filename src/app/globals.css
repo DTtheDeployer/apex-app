@@ -244,15 +244,48 @@ button, .no-select {
 
 /* Apex card base */
 .apex-card {
-  background: var(--surface);
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.6) 100%);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 12px;
   box-shadow: var(--apex-shadow-sm);
-  transition: box-shadow var(--transition-base), transform var(--transition-base);
+  transition: box-shadow var(--transition-base), transform var(--transition-base), border-color var(--transition-base);
 }
 
 .apex-card:hover {
+  border-color: rgba(255, 255, 255, 0.12);
   box-shadow: var(--apex-shadow-md);
+  transform: translateY(-1px);
+}
+
+/* Stat card - larger variant for key metrics */
+.stat-card {
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.6) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  transition: all var(--transition-base);
+}
+
+.stat-card:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  transform: translateY(-2px);
+}
+
+.stat-card-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.stat-card-value {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Signal card gradients */
@@ -270,4 +303,39 @@ button, .no-select {
 .signal-cold {
   background: rgba(255, 255, 255, 0.03);
   border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Signal pulse animation for hot signals */
+@keyframes signal-pulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(0, 208, 132, 0.08); }
+  50% { box-shadow: 0 0 24px rgba(0, 208, 132, 0.2); }
+}
+
+.signal-hot {
+  animation: signal-pulse 3s ease-in-out infinite;
+}
+
+/* Apex glow animation */
+@keyframes apex-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(0, 168, 150, 0.2); }
+  50% { box-shadow: 0 0 30px rgba(0, 168, 150, 0.4); }
+}
+
+.apex-animate-glow {
+  animation: apex-glow 3s ease-in-out infinite;
+}
+
+/* Section header utility */
+.apex-section-header {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
+/* Tabular numbers for financial data */
+.apex-number {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
 }

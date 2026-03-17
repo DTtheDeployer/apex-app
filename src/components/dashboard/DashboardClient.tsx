@@ -494,9 +494,7 @@ export default function DashboardClient({
             </div>
             <div className="bg-black/20 rounded-lg p-2.5 text-center">
               <p className="text-[10px] text-white/50 uppercase mb-1">P&L</p>
-              <p className={`text-lg font-bold ${currentStratStats.pnl >= 0 ? 'text-green' : 'text-red'}`}>
-                {fmtSigned(currentStratStats.pnl)}
-              </p>
+              <div className="mt-0.5"><PnlBadge value={currentStratStats.pnl} /></div>
             </div>
           </div>
         </div>
@@ -606,22 +604,22 @@ export default function DashboardClient({
       )}
 
       {/* Stats Row */}
-      <div className="grid grid-cols-4 gap-2 mb-4">
-        <div className="apex-card p-2.5 text-center">
-          <p className="text-[10px] text-muted uppercase tracking-wide">Equity</p>
-          <p className="text-sm font-bold font-mono mt-0.5">{fmt(heartbeat?.equity)}</p>
+      <div className="grid grid-cols-4 gap-3 mb-4">
+        <div className="stat-card p-4 text-center">
+          <p className="stat-card-label">Equity</p>
+          <p className="stat-card-value">{fmt(heartbeat?.equity)}</p>
         </div>
-        <div className="apex-card p-2.5 text-center">
-          <p className="text-[10px] text-muted uppercase tracking-wide">Today</p>
-          <div className="mt-0.5"><PnlBadge value={todayPnl} /></div>
+        <div className="stat-card p-4 text-center">
+          <p className="stat-card-label">Today</p>
+          <div className="mt-1"><PnlBadge value={todayPnl} size="md" /></div>
         </div>
-        <div className="apex-card p-2.5 text-center">
-          <p className="text-[10px] text-muted uppercase tracking-wide">Total</p>
-          <div className="mt-0.5"><PnlBadge value={totalPnl} /></div>
+        <div className="stat-card p-4 text-center">
+          <p className="stat-card-label">Total</p>
+          <div className="mt-1"><PnlBadge value={totalPnl} size="md" /></div>
         </div>
-        <div className="apex-card p-2.5 text-center">
-          <p className="text-[10px] text-muted uppercase tracking-wide">Win%</p>
-          <p className="text-sm font-bold font-mono mt-0.5">{totalTrades > 0 ? `${winRate.toFixed(0)}%` : '—'}</p>
+        <div className="stat-card p-4 text-center">
+          <p className="stat-card-label">Win%</p>
+          <p className={`stat-card-value ${totalTrades > 0 && winRate >= 50 ? 'text-green' : ''}`}>{totalTrades > 0 ? `${winRate.toFixed(0)}%` : '—'}</p>
         </div>
       </div>
 
@@ -639,7 +637,13 @@ export default function DashboardClient({
         {signalRadar.length > 0 ? (
           <div className="grid grid-cols-5 gap-2">
             {signalRadar.map((scan) => (
-              <div key={scan.symbol} className={`rounded-lg border p-2 text-center transition-all ${getSignalBgColor(scan.strength)}`}>
+              <div key={scan.symbol} className={`relative rounded-xl border p-3 text-center transition-all duration-300 hover:scale-[1.02] cursor-default ${getSignalBgColor(scan.strength)}`}>
+                {scan.strength >= 70 && (
+                  <span className="absolute top-2 right-2 flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green" />
+                  </span>
+                )}
                 <p className="text-xs font-bold mb-1">{scan.symbol}</p>
                 <div className="flex justify-center mb-1">
                   <div className={`w-3 h-3 rounded-full ${getSignalColor(scan.strength)} ${scan.strength >= 70 ? 'animate-pulse' : ''}`} />
@@ -663,13 +667,13 @@ export default function DashboardClient({
       {/* TradingView Charts */}
       <div className="mb-4">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-[10px] text-muted uppercase font-medium">Live Charts</p>
+          <p className="apex-section-header">Live Charts</p>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
           {['BTC', 'ETH', 'SOL', 'ARB', 'DOGE'].map((symbol) => (
-            <div key={symbol} className="bg-surface rounded-lg overflow-hidden">
-              <div className="px-2 py-1.5 border-b border-white/10">
-                <p className="text-[10px] text-muted uppercase font-medium">{symbol}</p>
+            <div key={symbol} className="apex-card overflow-hidden">
+              <div className="px-2 py-1.5 border-b border-white/[0.06]">
+                <p className="text-[10px] text-muted uppercase font-medium tracking-wide">{symbol}</p>
               </div>
               <iframe
                 src={`https://s.tradingview.com/widgetembed/?symbol=BINANCE:${symbol}USDT&interval=60&theme=dark&style=1&hide_top_toolbar=1&hide_legend=1&save_image=0&hide_volume=1&withdateranges=0`}

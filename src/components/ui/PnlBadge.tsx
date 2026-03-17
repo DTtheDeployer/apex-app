@@ -17,7 +17,7 @@ export default function PnlBadge({ value, format = 'dollar', size = 'sm' }: PnlB
 
   const sign = value >= 0 ? '+' : '-'
   const cls = value > 0 ? 'pnl-positive' : value < 0 ? 'pnl-negative' : 'pnl-neutral'
-  const sizeClass = size === 'md' ? 'px-2 py-0.5 text-sm' : 'px-1.5 py-0.5 text-xs'
+  const sizeClass = size === 'md' ? 'px-3 py-1 text-xl' : 'px-1.5 py-0.5 text-xs'
 
   return (
     <span className={`${cls} inline-flex items-center rounded-md ${sizeClass} font-mono font-semibold`}>
