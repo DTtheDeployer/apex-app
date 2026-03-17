@@ -6,6 +6,7 @@
   --background: #0A1628;
   --foreground: #E8EEF4;
   --surface: #0f1f3a;
+  --surface2: #162a4a;
   --muted: #9ba3b8;
   --subtle: #1e3a5f;
   --green: #00d084;
@@ -13,6 +14,16 @@
   --red: #ff4757;
   --blue: #3b82f6;
   --gold: #f59e0b;
+
+  /* Shadows */
+  --apex-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --apex-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --apex-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --apex-shadow-glow: 0 0 20px rgba(0, 168, 150, 0.15);
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 * {
@@ -210,4 +221,53 @@ button, .no-select {
   background-size: 200% 100%;
   animation: skeleton-pulse 1.5s ease-in-out infinite;
   border-radius: 0.25rem;
+}
+
+/* PnL Badge */
+.pnl-positive {
+  background: rgba(0, 208, 132, 0.12);
+  color: var(--green);
+  border: 1px solid rgba(0, 208, 132, 0.2);
+}
+
+.pnl-negative {
+  background: rgba(255, 71, 87, 0.12);
+  color: var(--red);
+  border: 1px solid rgba(255, 71, 87, 0.2);
+}
+
+.pnl-neutral {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Apex card base */
+.apex-card {
+  background: var(--surface);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  box-shadow: var(--apex-shadow-sm);
+  transition: box-shadow var(--transition-base), transform var(--transition-base);
+}
+
+.apex-card:hover {
+  box-shadow: var(--apex-shadow-md);
+}
+
+/* Signal card gradients */
+.signal-hot {
+  background: linear-gradient(135deg, rgba(0, 208, 132, 0.08), rgba(0, 208, 132, 0.02));
+  border-color: rgba(0, 208, 132, 0.25);
+  box-shadow: 0 0 12px rgba(0, 208, 132, 0.08);
+}
+
+.signal-warm {
+  background: linear-gradient(135deg, rgba(234, 179, 8, 0.08), rgba(234, 179, 8, 0.02));
+  border-color: rgba(234, 179, 8, 0.25);
+}
+
+.signal-cold {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.08);
 }

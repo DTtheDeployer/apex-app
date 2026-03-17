@@ -1,6 +1,7 @@
 'use client'
 
 import AIChatWidget from '@/components/AIChatWidget'
+import PnlBadge from '@/components/ui/PnlBadge'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { AreaChart, Area, ResponsiveContainer } from 'recharts'
@@ -216,9 +217,9 @@ function getSignalColor(strength: number): string {
 }
 
 function getSignalBgColor(strength: number): string {
-  if (strength >= 70) return 'bg-green/10 border-green/30'
-  if (strength >= 30) return 'bg-yellow-500/10 border-yellow-500/30'
-  return 'bg-white/5 border-white/10'
+  if (strength >= 70) return 'signal-hot'
+  if (strength >= 30) return 'signal-warm'
+  return 'signal-cold'
 }
 
 export default function DashboardClient({
@@ -606,28 +607,28 @@ export default function DashboardClient({
 
       {/* Stats Row */}
       <div className="grid grid-cols-4 gap-2 mb-4">
-        <div className="bg-surface rounded-lg p-2 text-center">
-          <p className="text-[10px] text-muted uppercase">Equity</p>
-          <p className="text-sm font-bold">{fmt(heartbeat?.equity)}</p>
+        <div className="apex-card p-2.5 text-center">
+          <p className="text-[10px] text-muted uppercase tracking-wide">Equity</p>
+          <p className="text-sm font-bold font-mono mt-0.5">{fmt(heartbeat?.equity)}</p>
         </div>
-        <div className="bg-surface rounded-lg p-2 text-center">
-          <p className="text-[10px] text-muted uppercase">Today</p>
-          <p className={`text-sm font-bold ${todayPnl >= 0 ? 'text-green' : 'text-red'}`}>{fmtSigned(todayPnl)}</p>
+        <div className="apex-card p-2.5 text-center">
+          <p className="text-[10px] text-muted uppercase tracking-wide">Today</p>
+          <div className="mt-0.5"><PnlBadge value={todayPnl} /></div>
         </div>
-        <div className="bg-surface rounded-lg p-2 text-center">
-          <p className="text-[10px] text-muted uppercase">Total</p>
-          <p className={`text-sm font-bold ${totalPnl >= 0 ? 'text-green' : 'text-red'}`}>{fmtSigned(totalPnl)}</p>
+        <div className="apex-card p-2.5 text-center">
+          <p className="text-[10px] text-muted uppercase tracking-wide">Total</p>
+          <div className="mt-0.5"><PnlBadge value={totalPnl} /></div>
         </div>
-        <div className="bg-surface rounded-lg p-2 text-center">
-          <p className="text-[10px] text-muted uppercase">Win%</p>
-          <p className="text-sm font-bold">{totalTrades > 0 ? `${winRate.toFixed(0)}%` : '—'}</p>
+        <div className="apex-card p-2.5 text-center">
+          <p className="text-[10px] text-muted uppercase tracking-wide">Win%</p>
+          <p className="text-sm font-bold font-mono mt-0.5">{totalTrades > 0 ? `${winRate.toFixed(0)}%` : '—'}</p>
         </div>
       </div>
 
       {/* Signal Radar */}
-      <div className="bg-surface rounded-lg p-3 mb-4">
+      <div className="apex-card p-3 mb-4">
         <div className="flex items-center justify-between mb-3">
-          <p className="text-[10px] text-muted uppercase font-medium">Signal Radar</p>
+          <p className="text-[10px] text-muted uppercase font-medium tracking-wide">Signal Radar</p>
           <div className="flex items-center gap-2 text-[9px] text-muted">
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red" />Cold</span>
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500" />Warm</span>
@@ -682,14 +683,14 @@ export default function DashboardClient({
       </div>
 
       {/* Active Positions */}
-      <div className={`rounded-lg border mb-4 ${openTrades.length > 0 ? 'border-green/30 bg-green/[0.02]' : 'border-white/10 bg-surface'}`}>
-        <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
+      <div className={`apex-card mb-4 ${openTrades.length > 0 ? 'border-green/20' : ''}`}>
+        <div className="px-3 py-2.5 border-b border-white/[0.06] flex items-center justify-between">
           <div className="flex items-center gap-2">
             {openTrades.length > 0 && <span className="w-2 h-2 rounded-full bg-green animate-pulse" />}
             <span className="text-xs font-medium">{openTrades.length > 0 ? `${openTrades.length} Open` : 'No Positions'}</span>
           </div>
           {openTrades.length > 0 && (
-            <span className={`text-xs font-bold ${unrealizedPnl >= 0 ? 'text-green' : 'text-red'}`}>{fmtSigned(unrealizedPnl)}</span>
+            <PnlBadge value={unrealizedPnl} />
           )}
         </div>
 
@@ -735,7 +736,7 @@ export default function DashboardClient({
               }
 
               return (
-                <div key={t.id} className="px-3 py-2">
+                <div key={t.id} className={`px-3 py-2.5 border-l-2 ${isProfit ? 'border-l-green' : 'border-l-red'} hover:bg-white/[0.02] transition-colors`}>
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2">
                       <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${t.side === 'LONG' ? 'bg-green/20 text-green' : 'bg-red/20 text-red'}`}>{t.side}</span>
@@ -768,7 +769,7 @@ export default function DashboardClient({
                     <div className="text-xs text-muted">
                       ${t.entry_price?.toLocaleString()} → {current ? <span className={isProfit ? 'text-green' : 'text-red'}>${current.toLocaleString()}</span> : '—'}
                     </div>
-                    <div className={`text-sm font-bold ${isProfit ? 'text-green' : 'text-red'}`}>{fmtSigned(pnl)}</div>
+                    <PnlBadge value={pnl} />
                   </div>
 
                   <div className="mb-2">
@@ -831,8 +832,8 @@ export default function DashboardClient({
 
       {/* Chart */}
       {chartData.length > 1 && (
-        <div className="bg-surface rounded-lg p-3 mb-4">
-          <p className="text-[10px] text-muted uppercase mb-2">Portfolio</p>
+        <div className="apex-card p-3 mb-4">
+          <p className="text-[10px] text-muted uppercase tracking-wide mb-2">Portfolio</p>
           <ResponsiveContainer width="100%" height={80}>
             <AreaChart data={chartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
               <defs>
@@ -849,10 +850,10 @@ export default function DashboardClient({
 
       {/* Recent Closed Trades */}
       {closedTrades.length > 0 && (
-        <div className="bg-surface rounded-lg p-3">
+        <div className="apex-card p-3">
           <div className="flex items-center justify-between mb-2">
-            <p className="text-[10px] text-muted uppercase">Recent Closed</p>
-            <a href="/dashboard/trades" className="text-[10px] text-green">View all</a>
+            <p className="text-[10px] text-muted uppercase tracking-wide">Recent Closed</p>
+            <a href="/dashboard/trades" className="text-[10px] text-teal hover:text-teal-light transition-colors">View all</a>
           </div>
           <div className="space-y-1">
             {closedTrades.slice(0, 5).map(t => {
@@ -874,7 +875,7 @@ export default function DashboardClient({
                       })()}
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className={`text-xs font-bold ${(t.pnl ?? 0) >= 0 ? 'text-green' : 'text-red'}`}>{fmtSigned(t.pnl)}</span>
+                      <PnlBadge value={t.pnl ?? 0} />
                       <span className={`text-[10px] px-1 rounded ${(t.pnl ?? 0) >= 0 ? 'bg-green/10 text-green' : 'bg-red/10 text-red'}`}>{t.close_reason}</span>
                       <button 
                         onClick={() => setExpandedTrade(isExpanded ? null : t.id)}
@@ -901,8 +902,8 @@ export default function DashboardClient({
 
       {/* Market + Stats */}
       <div className="grid grid-cols-2 gap-3 mt-4">
-        <div className="bg-surface rounded-lg p-3">
-          <p className="text-[10px] text-muted uppercase mb-2">Market</p>
+        <div className="apex-card p-3">
+          <p className="text-[10px] text-muted uppercase tracking-wide mb-2">Market</p>
           <div className="space-y-1">
             <div className="flex justify-between text-xs">
               <span className="text-muted">Regime</span>
@@ -914,8 +915,8 @@ export default function DashboardClient({
             </div>
           </div>
         </div>
-        <div className="bg-surface rounded-lg p-3">
-          <p className="text-[10px] text-muted uppercase mb-2">Stats</p>
+        <div className="apex-card p-3">
+          <p className="text-[10px] text-muted uppercase tracking-wide mb-2">Stats</p>
           <div className="space-y-1">
             <div className="flex justify-between text-xs">
               <span className="text-muted">Trades</span>

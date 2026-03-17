@@ -21,6 +21,15 @@ module.exports = {
         sans: ['Inter', 'system-ui', 'sans-serif'],
         mono: ['JetBrains Mono', 'monospace'],
       },
+      boxShadow: {
+        'apex-sm': '0 1px 2px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.04)',
+        'apex-md': '0 4px 12px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04)',
+        'apex-lg': '0 8px 24px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04)',
+        'apex-glow': '0 0 20px rgba(0,168,150,0.15)',
+      },
+      borderRadius: {
+        'apex': '12px',
+      },
     },
   },
   plugins: [],

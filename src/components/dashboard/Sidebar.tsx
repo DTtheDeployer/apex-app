@@ -41,8 +41,8 @@ export default function Sidebar({ profile }: { profile: Profile | null }) {
       {/* Logo */}
       <div className="px-5 py-5 border-b border-white/[0.06] flex items-center justify-between">
         <Link href="/dashboard" className="flex items-center gap-2.5" onClick={closeMobile}>
-          <div className="w-7 h-7 rounded-lg bg-green/10 border border-green/20 flex items-center justify-center flex-shrink-0">
-            <svg className="w-3.5 h-3.5 text-green" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <div className="w-7 h-7 rounded-lg bg-teal/10 border border-teal/20 flex items-center justify-center flex-shrink-0">
+            <svg className="w-3.5 h-3.5 text-teal" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
               <polyline points="16 7 22 7 22 13"/>
             </svg>
@@ -67,10 +67,10 @@ export default function Sidebar({ profile }: { profile: Profile | null }) {
           
           return (
             <Link key={href} href={href} onClick={closeMobile}
-              className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors group
+              className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 group
                 ${isActive
-                  ? 'bg-green/10 text-green'
-                  : 'text-muted hover:text-white hover:bg-white/[0.04]'}`}>
+                  ? 'bg-teal/15 text-teal border border-teal/20 shadow-apex-sm'
+                  : 'text-muted hover:text-white hover:bg-white/[0.06] border border-transparent'}`}>
               <Icon className="w-4 h-4 flex-shrink-0" />
               {label}
               {isActive && <ChevronRight className="w-3 h-3 ml-auto" />}
@@ -88,7 +88,7 @@ export default function Sidebar({ profile }: { profile: Profile | null }) {
           </span>
           {profile?.plan === 'starter' && (
             <Link href="/settings/billing" onClick={closeMobile}
-              className="ml-auto text-xs text-green hover:underline font-medium">
+              className="ml-auto text-xs text-teal hover:underline font-medium">
               Upgrade
             </Link>
           )}
@@ -119,8 +119,8 @@ export default function Sidebar({ profile }: { profile: Profile | null }) {
           <Menu className="w-5 h-5" />
         </button>
         <Link href="/dashboard" className="flex items-center gap-2 ml-2">
-          <div className="w-6 h-6 rounded-lg bg-green/10 border border-green/20 flex items-center justify-center">
-            <svg className="w-3 h-3 text-green" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <div className="w-6 h-6 rounded-lg bg-teal/10 border border-teal/20 flex items-center justify-center">
+            <svg className="w-3 h-3 text-teal" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
               <polyline points="16 7 22 7 22 13"/>
             </svg>

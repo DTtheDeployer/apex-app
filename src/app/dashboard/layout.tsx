@@ -5,8 +5,7 @@ import Sidebar from '@/components/dashboard/Sidebar'
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = createClient()
 
-  const { data: { user }, error } = await supabase.auth.getUser()
-  console.log('LAYOUT DEBUG', { hasUser: !!user, error: error?.message })
+  const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
   const { data: profile } = await supabase
