@@ -56,6 +56,7 @@ export default function LoginPage() {
 
   return (
     <div
+      className="login-wrapper"
       style={{
         minHeight: '100vh',
         display: 'flex',
@@ -66,6 +67,7 @@ export default function LoginPage() {
     >
       {/* Left branding panel */}
       <div
+        className="login-brand"
         style={{
           flex: 1,
           display: 'flex',
@@ -187,6 +189,7 @@ export default function LoginPage() {
 
       {/* Right login panel */}
       <div
+        className="login-form-panel"
         style={{
           width: '520px',
           display: 'flex',
@@ -197,6 +200,7 @@ export default function LoginPage() {
         }}
       >
         <div
+          className="login-form-inner"
           style={{
             width: '100%',
             maxWidth: '380px',
@@ -211,7 +215,62 @@ export default function LoginPage() {
             input::placeholder {
               color: rgba(232, 238, 244, 0.3);
             }
+            @media (max-width: 768px) {
+              .login-wrapper { flex-direction: column !important; }
+              .login-brand { display: none !important; }
+              .login-mobile-logo { display: flex !important; }
+              .login-form-panel {
+                width: 100% !important;
+                border-left: none !important;
+                padding: 24px !important;
+                min-height: 100vh;
+              }
+              .login-form-inner { max-width: 100% !important; }
+            }
+            @media (min-width: 769px) and (max-width: 1024px) {
+              .login-brand { padding: 48px !important; }
+              .login-brand h1 { font-size: 32px !important; }
+              .login-form-panel { width: 440px !important; padding: 32px !important; }
+            }
           `}</style>
+
+          {/* Mobile-only logo */}
+          <div
+            className="login-mobile-logo"
+            style={{
+              display: 'none',
+              alignItems: 'center',
+              gap: '10px',
+              marginBottom: '32px',
+            }}
+          >
+            <div
+              style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '9px',
+                background: 'linear-gradient(135deg, #00A896, #00D4AA)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '18px',
+                fontWeight: 800,
+                color: '#0A1628',
+              }}
+            >
+              A
+            </div>
+            <span
+              style={{
+                fontSize: '18px',
+                fontWeight: 700,
+                color: '#E8EEF4',
+                letterSpacing: '-0.02em',
+              }}
+            >
+              APEX
+            </span>
+          </div>
 
           <h2
             style={{
