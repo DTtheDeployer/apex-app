@@ -23,12 +23,9 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // Refresh the session so it stays alive
-  const { data: { user } } = await supabase.auth.getUser()
-
+  const { data: { session } } = await supabase.auth.getSession()
   const { pathname } = request.nextUrl
 
-  // Public routes that don't require auth
   const isPublicRoute =
     pathname === '/' ||
     pathname === '/login' ||
@@ -39,8 +36,14 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/api/bot/positions') ||
     pathname.startsWith('/api/prices')
 
-  // Redirect unauthenticated users to login for protected routes
-  if (!user && !isPublicRoute) {
+  console.log('MIDDLEWARE DEBUG', {
+    pathname,
+    isPublicRoute,
+    hasSession: !!session,
+    cookieNames: request.cookies.getAll().map(c => c.name),
+  })
+
+  if (!session && !isPublicRoute) {
     const loginUrl = request.nextUrl.clone()
     loginUrl.pathname = '/login'
     return NextResponse.redirect(loginUrl)
