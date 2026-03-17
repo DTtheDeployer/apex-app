@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { login } from './actions'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -13,14 +12,22 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
 
-    const formData = new FormData()
-    formData.set('email', email)
-    formData.set('password', password)
+    try {
+      const res = await fetch('/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      })
 
-    const result = await login(formData)
+      const result = await res.json()
 
-    if (result?.error) {
-      setError(result.error)
+      if (!res.ok) {
+        setError(result.error || 'Login failed')
+        setLoading(false)
+        return
+      }
+    } catch {
+      setError('Network error')
       setLoading(false)
       return
     }
