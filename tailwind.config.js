@@ -4,11 +4,13 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        bg:       '#080a0f',
-        surface:  '#0f1117',
-        surface2: '#161b25',
+        bg:       '#0A1628',
+        surface:  '#0f1f3a',
+        surface2: '#162a4a',
         border:   'rgba(255,255,255,0.08)',
         green:    '#00d084',
+        teal:     '#00A896',
+        'teal-light': '#00D4AA',
         red:      '#ff4d6a',
         blue:     '#5b7fff',
         gold:     '#f5b642',

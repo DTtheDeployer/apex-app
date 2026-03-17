@@ -3,12 +3,13 @@
 @tailwind utilities;
 
 :root {
-  --background: #0a0a0a;
-  --foreground: #ffffff;
-  --surface: #141414;
-  --muted: #737373;
-  --subtle: #404040;
+  --background: #0A1628;
+  --foreground: #E8EEF4;
+  --surface: #0f1f3a;
+  --muted: #9ba3b8;
+  --subtle: #1e3a5f;
   --green: #00d084;
+  --teal: #00A896;
   --red: #ff4757;
   --blue: #3b82f6;
   --gold: #f59e0b;
@@ -126,11 +127,11 @@ a {
 @keyframes pulse-glow {
   0%, 100% {
     opacity: 1;
-    box-shadow: 0 0 0 0 rgba(0, 208, 132, 0.4);
+    box-shadow: 0 0 0 0 rgba(0, 168, 150, 0.4);
   }
   50% {
     opacity: 0.8;
-    box-shadow: 0 0 0 4px rgba(0, 208, 132, 0);
+    box-shadow: 0 0 0 4px rgba(0, 168, 150, 0);
   }
 }
 
@@ -140,7 +141,7 @@ a {
 
 /* Gradient text utility */
 .gradient-text {
-  background: linear-gradient(135deg, var(--green), var(--blue));
+  background: linear-gradient(135deg, var(--teal), #00D4AA);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -159,7 +160,7 @@ a {
 /* Focus styles */
 button:focus-visible,
 a:focus-visible {
-  outline: 2px solid var(--green);
+  outline: 2px solid var(--teal);
   outline-offset: 2px;
 }
 
@@ -175,7 +176,7 @@ input, select, textarea {
 
 input:focus, select:focus, textarea:focus {
   outline: none;
-  border-color: var(--green);
+  border-color: var(--teal);
 }
 
 /* Modal backdrop blur */
