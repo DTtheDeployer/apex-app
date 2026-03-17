@@ -15,9 +15,14 @@ export function createClient() {
           return cookieStore.getAll()
         },
         setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options as Parameters<typeof cookieStore.set>[2])
-          })
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options as Parameters<typeof cookieStore.set>[2])
+            })
+          } catch {
+            // Called from a Server Component — can be ignored,
+            // middleware handles session refresh.
+          }
         },
       },
     }

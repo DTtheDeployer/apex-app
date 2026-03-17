@@ -23,7 +23,7 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  const { data: { session } } = await supabase.auth.getSession()
+  const { data: { user } } = await supabase.auth.getUser()
   const { pathname } = request.nextUrl
 
   const isPublicRoute =
@@ -32,18 +32,11 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/auth/') ||
     pathname.startsWith('/api/webhooks/') ||
     pathname.startsWith('/api/bot/sync') ||
-    pathname.startsWith('/api/bot/close') && request.method === 'GET' ||
+    (pathname.startsWith('/api/bot/close') && request.method === 'GET') ||
     pathname.startsWith('/api/bot/positions') ||
     pathname.startsWith('/api/prices')
 
-  console.log('MIDDLEWARE DEBUG', {
-    pathname,
-    isPublicRoute,
-    hasSession: !!session,
-    cookieNames: request.cookies.getAll().map(c => c.name),
-  })
-
-  if (!session && !isPublicRoute) {
+  if (!user && !isPublicRoute) {
     const loginUrl = request.nextUrl.clone()
     loginUrl.pathname = '/login'
     return NextResponse.redirect(loginUrl)
