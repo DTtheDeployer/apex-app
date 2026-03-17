@@ -19,11 +19,13 @@ export default function LoginPage() {
 
     const result = await login(formData)
 
-    // On success, redirect happens server-side — only errors return here
     if (result?.error) {
       setError(result.error)
       setLoading(false)
+      return
     }
+
+    window.location.href = '/dashboard'
   }
 
   return (
