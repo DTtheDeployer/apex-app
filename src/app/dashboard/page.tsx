@@ -1,12 +1,15 @@
 export const dynamic = 'force-dynamic'
 
-import { createAdminClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
 import DashboardClient from '@/components/dashboard/DashboardClient'
 
 export default async function DashboardPage() {
-  const supabase = createAdminClient()
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
 
-  const userId = 'a040d19d-f40e-44f7-9b90-dead9d9bcfeb'
+  const userId = user.id
 
   const [
     { data: profile },
@@ -52,6 +55,7 @@ export default async function DashboardPage() {
 
   return (
     <DashboardClient
+      userId={userId}
       profile={profile}
       config={config}
       trades={trades ?? []}

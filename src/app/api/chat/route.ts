@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@supabase/supabase-js'
+import { createClient as createSessionClient } from '@/lib/supabase/server'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
 })
 
+// ADMIN USE ONLY — service role needed for cross-table reads (paper_positions, bot_settings may lack RLS); auth verified via session
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -13,10 +15,17 @@ const supabase = createClient(
 
 export async function POST(req: NextRequest) {
   try {
-    const { message, userId } = await req.json()
+    const sessionClient = createSessionClient()
+    const { data: { user } } = await sessionClient.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
-    if (!message || !userId) {
-      return NextResponse.json({ error: 'Missing message or userId' }, { status: 400 })
+    const { message } = await req.json()
+    const userId = user.id
+
+    if (!message) {
+      return NextResponse.json({ error: 'Missing message' }, { status: 400 })
     }
 
     // Fetch user's trading context

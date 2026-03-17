@@ -23,6 +23,7 @@ interface StrategyStats {
 }
 
 interface Props {
+  userId: string
   profile: Profile | null
   config: BotConfig | null
   trades: Trade[]
@@ -220,9 +221,9 @@ function getSignalBgColor(strength: number): string {
   return 'bg-white/5 border-white/10'
 }
 
-export default function DashboardClient({ 
-  profile, config, trades, heartbeat, equityHistory, stats, 
-  botEnabled = true, currentStrategy = 'apex_adaptive', strategyStats = {} 
+export default function DashboardClient({
+  userId, profile, config, trades, heartbeat, equityHistory, stats,
+  botEnabled = true, currentStrategy = 'apex_adaptive', strategyStats = {}
 }: Props) {
   const router = useRouter()
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -265,7 +266,7 @@ export default function DashboardClient({
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: 'a040d19d-f40e-44f7-9b90-dead9d9bcfeb',
+          user_id: userId,
           enabled: newState,
         }),
       })
@@ -284,7 +285,7 @@ export default function DashboardClient({
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: 'a040d19d-f40e-44f7-9b90-dead9d9bcfeb',
+          user_id: userId,
           strategy: stratId,
         }),
       })
@@ -927,7 +928,7 @@ export default function DashboardClient({
           </div>
         </div>
       </div>
-      <AIChatWidget userId="a040d19d-f40e-44f7-9b90-dead9d9bcfeb" />
+      <AIChatWidget userId={userId} />
     </div>
   )
 }

@@ -1,16 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createClient as createSessionClient } from '@/lib/supabase/server'
 
+// ADMIN USE ONLY — service role needed for bot GET/PATCH (x-bot-secret) and dashboard POST (session-verified writes)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// POST - Request bot to close a position
+// POST - Request bot to close a position (dashboard-facing)
 export async function POST(request: NextRequest) {
   try {
+    const sessionClient = createSessionClient()
+    const { data: { user } } = await sessionClient.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const body = await request.json()
-    const { trade_id, symbol, user_id } = body
+    const { trade_id, symbol } = body
 
     if (!trade_id && !symbol) {
       return NextResponse.json({ error: 'Missing trade_id or symbol' }, { status: 400 })
@@ -20,7 +28,7 @@ export async function POST(request: NextRequest) {
     const { error } = await supabase
       .from('bot_commands')
       .insert({
-        user_id: user_id || 'a040d19d-f40e-44f7-9b90-dead9d9bcfeb',
+        user_id: user.id,
         command: 'CLOSE_POSITION',
         payload: { trade_id, symbol },
         status: 'pending',

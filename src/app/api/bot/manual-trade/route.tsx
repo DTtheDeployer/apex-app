@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createClient as createSessionClient } from '@/lib/supabase/server'
 import { v4 as uuidv4 } from 'uuid'
 
+// ADMIN USE ONLY — service role needed for cross-table writes; auth verified via session
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -9,9 +11,14 @@ const supabase = createClient(
 
 export async function POST(request: NextRequest) {
   try {
+    const sessionClient = createSessionClient()
+    const { data: { user } } = await sessionClient.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const body = await request.json()
     const {
-      user_id,
       symbol,
       side,
       size,
@@ -20,9 +27,10 @@ export async function POST(request: NextRequest) {
       stop_loss,
       take_profit,
     } = body
+    const user_id = user.id
 
     // Validate inputs
-    if (!user_id || !symbol || !side || !size || !entry_price) {
+    if (!symbol || !side || !size || !entry_price) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createClient as createSessionClient } from '@/lib/supabase/server'
 
+// ADMIN USE ONLY — service role needed for bot GET (x-bot-secret) and dashboard POST/PATCH (session-verified writes)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -57,12 +59,15 @@ export async function GET(request: NextRequest) {
 // POST - Dashboard updates settings
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
-    const { user_id, strategy_mode, risk_level, strategy } = body
-
-    if (!user_id) {
-      return NextResponse.json({ error: 'Missing user_id' }, { status: 400 })
+    const sessionClient = createSessionClient()
+    const { data: { user } } = await sessionClient.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    const body = await request.json()
+    const { strategy_mode, risk_level, strategy } = body
+    const user_id = user.id
 
     // Update bot_configs
     const { error: configError } = await supabase
@@ -99,12 +104,15 @@ export async function POST(request: NextRequest) {
 // PATCH - Toggle auto-trading on/off or update strategy
 export async function PATCH(request: NextRequest) {
   try {
-    const body = await request.json()
-    const { user_id, enabled, strategy } = body
-
-    if (!user_id) {
-      return NextResponse.json({ error: 'Missing user_id' }, { status: 400 })
+    const sessionClient = createSessionClient()
+    const { data: { user } } = await sessionClient.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    const body = await request.json()
+    const { enabled, strategy } = body
+    const user_id = user.id
 
     const updateData: any = { user_id }
     if (typeof enabled === 'boolean') {

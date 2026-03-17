@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { 
-  TrendingUp, TrendingDown, DollarSign, Percent, 
-  AlertTriangle, CheckCircle, RefreshCw, Target, 
+import {
+  TrendingUp, TrendingDown, DollarSign, Percent,
+  AlertTriangle, CheckCircle, RefreshCw, Target,
   Shield, Zap, Info, ArrowRight, X
 } from 'lucide-react'
 
@@ -140,7 +140,7 @@ export default function ManualTradePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: 'a040d19d-f40e-44f7-9b90-dead9d9bcfeb',
+          user_id: userId,
           symbol: selectedAsset,
           side,
           size: positionSize,

@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
 
-import { createAdminClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
 import { ChevronDown, TrendingUp, Target, Zap, Crosshair, Crown, Sparkles } from 'lucide-react'
 
 // Strategy definitions matching the dashboard
@@ -36,8 +37,11 @@ function getStrategyDisplay(strategy: string | undefined): { name: string; color
 }
 
 export default async function TradesPage() {
-  const supabase = createAdminClient()
-  const userId = 'a040d19d-f40e-44f7-9b90-dead9d9bcfeb'
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const userId = user.id
 
   // Only fetch CLOSED trades (where closed_at is not null)
   const { data: trades } = await supabase

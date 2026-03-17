@@ -1,12 +1,15 @@
+import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import Sidebar from '@/components/dashboard/Sidebar'
 
 export default async function SettingsLayout({ children }: { children: React.ReactNode }) {
   const supabase = createClient()
-  const userId = 'a040d19d-f40e-44f7-9b90-dead9d9bcfeb'
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
 
   const { data: profile } = await supabase
-    .from('profiles').select('*').eq('id', userId).single()
+    .from('profiles').select('*').eq('id', user.id).single()
 
   return (
     <div className="flex h-screen bg-bg overflow-hidden">
