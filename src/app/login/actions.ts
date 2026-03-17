@@ -1,9 +1,11 @@
 'use server'
 
+import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 
 export async function login(formData: FormData) {
-  const supabase = await createClient()
+  const supabase = createClient()
 
   const email = String(formData.get('email') || '')
   const password = String(formData.get('password') || '')
@@ -17,5 +19,6 @@ export async function login(formData: FormData) {
     return { error: error.message }
   }
 
-  return { success: true }
+  revalidatePath('/', 'layout')
+  redirect('/dashboard')
 }
