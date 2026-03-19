@@ -330,24 +330,26 @@ class SignalEngine:
         self.regime_detector = RegimeDetector()
         self.macro_calendar = MacroCalendar()
     
-    def generate_signal(self, symbol: str, candles: List[Dict], strategy_id: str = "apex_adaptive") -> Optional[Signal]:
+    def generate_signal(self, symbol: str, candles: List[Dict], strategy_id: str = "apex_adaptive",
+                         candles_4h: Optional[List[Dict]] = None) -> Optional[Signal]:
         if len(candles) < 50:
             return None
-        
+
         strategy = STRATEGIES.get(strategy_id, STRATEGIES["apex_adaptive"])
         params = strategy["params"]
-        
+
         regime = self.regime_detector.detect(candles)
         macro_context, _ = self.macro_calendar.get_context()
-        
+
         if macro_context == MacroContext.FREEZE:
             return None
-        
+
         closes = np.array([c["close"] for c in candles])
         highs = np.array([c["high"] for c in candles])
         lows = np.array([c["low"] for c in candles])
+        volumes = np.array([c.get("volume", 0) for c in candles])
         current_price = closes[-1]
-        
+
         rsi = self._calculate_rsi(closes)
         sma_20 = np.mean(closes[-20:])
         sma_50 = np.mean(closes[-50:])
@@ -356,7 +358,13 @@ class SignalEngine:
         macd = ema_12 - ema_26
         bb_upper, bb_lower, bb_mid = self._calculate_bollinger(closes)
         atr = self._calculate_atr(highs, lows, closes)
-        
+
+        # ── Multi-Timeframe Analysis (4h) ──────────────────────────────
+        htf_bias = self._get_htf_bias(candles_4h)
+
+        # ── Volume Analysis ────────────────────────────────────────────
+        vol_confirm = self._check_volume_confirmation(volumes)
+
         signal = None
         if strategy_id == "apex_adaptive":
             signal = self._strategy_apex_adaptive(symbol, candles, params, regime, macro_context,
@@ -377,9 +385,198 @@ class SignalEngine:
             signal = self._strategy_swing_king(symbol, params, regime, macro_context,
                                               current_price, rsi, sma_20, sma_50, macd, atr)
 
+        # ── Apply Multi-Timeframe & Volume Filters ─────────────────────
+        if signal:
+            signal = self._apply_htf_volume_filter(signal, htf_bias, vol_confirm, strategy)
+
         # Enrich every signal with structured trade thesis
         if signal:
             signal = self._enrich_explanation(signal, atr, strategy)
+
+        return signal
+
+    def _get_htf_bias(self, candles_4h: Optional[List[Dict]]) -> str:
+        """
+        Determine higher-timeframe (4h) trend bias.
+        Returns: 'bullish', 'bearish', or 'neutral'
+        """
+        if not candles_4h or len(candles_4h) < 30:
+            return "neutral"
+
+        closes = np.array([c["close"] for c in candles_4h])
+        highs = np.array([c["high"] for c in candles_4h])
+        lows = np.array([c["low"] for c in candles_4h])
+
+        # 4h SMA trend
+        sma_20 = np.mean(closes[-20:])
+        sma_50 = np.mean(closes[-min(50, len(closes)):])
+        current = closes[-1]
+
+        # 4h RSI
+        rsi_4h = self._calculate_rsi(closes)
+
+        # 4h MACD
+        ema_12 = self._calculate_ema(closes, 12)
+        ema_26 = self._calculate_ema(closes, 26)
+        macd_4h = ema_12 - ema_26
+
+        # 4h ADX for trend strength
+        adx_4h = self.regime_detector._calculate_adx(highs, lows, closes)
+
+        bullish_score = 0
+        bearish_score = 0
+
+        # SMA alignment
+        if current > sma_20 > sma_50:
+            bullish_score += 2
+        elif current < sma_20 < sma_50:
+            bearish_score += 2
+
+        # MACD direction
+        if macd_4h > 0:
+            bullish_score += 1
+        elif macd_4h < 0:
+            bearish_score += 1
+
+        # RSI bias
+        if rsi_4h > 55:
+            bullish_score += 1
+        elif rsi_4h < 45:
+            bearish_score += 1
+
+        # Strong trend (ADX > 25)
+        if adx_4h > 25:
+            if bullish_score > bearish_score:
+                bullish_score += 1
+            elif bearish_score > bullish_score:
+                bearish_score += 1
+
+        if bullish_score >= 3:
+            return "bullish"
+        elif bearish_score >= 3:
+            return "bearish"
+        return "neutral"
+
+    def _check_volume_confirmation(self, volumes: np.ndarray) -> Dict:
+        """
+        Analyze volume to confirm or deny signal quality.
+        Returns dict with volume metrics.
+        """
+        if len(volumes) < 20 or np.sum(volumes) == 0:
+            return {"confirmed": True, "ratio": 1.0, "trend": "flat", "note": ""}
+
+        avg_vol_20 = np.mean(volumes[-20:])
+        avg_vol_5 = np.mean(volumes[-5:])
+        current_vol = volumes[-1]
+
+        # Volume ratio: current vs 20-period average
+        vol_ratio = current_vol / avg_vol_20 if avg_vol_20 > 0 else 1.0
+
+        # Recent volume trend (5-bar vs 20-bar)
+        vol_trend_ratio = avg_vol_5 / avg_vol_20 if avg_vol_20 > 0 else 1.0
+
+        # Volume trend direction
+        if vol_trend_ratio > 1.3:
+            vol_trend = "surging"
+        elif vol_trend_ratio > 1.1:
+            vol_trend = "rising"
+        elif vol_trend_ratio < 0.7:
+            vol_trend = "drying_up"
+        elif vol_trend_ratio < 0.9:
+            vol_trend = "declining"
+        else:
+            vol_trend = "flat"
+
+        # Confirmation logic
+        confirmed = True
+        note = ""
+
+        # Breakout on low volume = likely fake
+        if vol_ratio < 0.5:
+            confirmed = False
+            note = "Volume too low — possible fake move"
+        # Trend with drying volume = weakening
+        elif vol_trend == "drying_up":
+            confirmed = False
+            note = "Volume drying up — trend may be exhausting"
+
+        return {
+            "confirmed": confirmed,
+            "ratio": round(vol_ratio, 2),
+            "trend": vol_trend,
+            "note": note,
+        }
+
+    def _apply_htf_volume_filter(self, signal: Signal, htf_bias: str,
+                                  vol_confirm: Dict, strategy: Dict) -> Optional[Signal]:
+        """
+        Gate every signal through multi-timeframe alignment and volume confirmation.
+        This is the master filter — no trade passes without both checks.
+        """
+        strategy_style = strategy.get("style", "hybrid")
+        is_long = signal.type == SignalType.LONG
+        is_short = signal.type == SignalType.SHORT
+
+        # ── HTF Filter ─────────────────────────────────────────────────
+        # Trend strategies: MUST align with 4h direction. No LONG against 4h bearish.
+        if strategy_style in ["trend", "breakout", "swing"]:
+            if is_long and htf_bias == "bearish":
+                logger.info(f"🚫 HTF REJECT: {signal.symbol} LONG blocked — 4h trend is bearish")
+                return None
+            if is_short and htf_bias == "bullish":
+                logger.info(f"🚫 HTF REJECT: {signal.symbol} SHORT blocked — 4h trend is bullish")
+                return None
+
+        # Mean reversion / scalping: 4h opposition = reduce confidence (don't block)
+        if strategy_style in ["mean_reversion", "scalping"]:
+            if (is_long and htf_bias == "bearish") or (is_short and htf_bias == "bullish"):
+                signal.confidence *= 0.75
+                signal.explanation += " (Reduced: counter to 4h trend)"
+
+        # Hybrid (apex_adaptive): block on strong opposition, reduce on mild
+        if strategy_style == "hybrid":
+            if is_long and htf_bias == "bearish":
+                signal.confidence *= 0.6
+                signal.explanation += " (Caution: 4h trend bearish)"
+                if signal.confidence < 0.55:
+                    logger.info(f"🚫 HTF REJECT: {signal.symbol} LONG confidence too low after 4h penalty")
+                    return None
+            elif is_short and htf_bias == "bullish":
+                signal.confidence *= 0.6
+                signal.explanation += " (Caution: 4h trend bullish)"
+                if signal.confidence < 0.55:
+                    logger.info(f"🚫 HTF REJECT: {signal.symbol} SHORT confidence too low after 4h penalty")
+                    return None
+
+        # HTF alignment bonus — boost confidence when 1h and 4h agree
+        if (is_long and htf_bias == "bullish") or (is_short and htf_bias == "bearish"):
+            signal.confidence = min(0.95, signal.confidence * 1.1)
+            signal.explanation += " (Boosted: aligned with 4h trend)"
+
+        # ── Volume Filter ──────────────────────────────────────────────
+        if not vol_confirm["confirmed"]:
+            # Breakouts absolutely need volume — hard reject
+            if strategy_style == "breakout":
+                logger.info(f"🚫 VOL REJECT: {signal.symbol} breakout blocked — {vol_confirm['note']}")
+                return None
+            # Other strategies: penalize confidence
+            signal.confidence *= 0.8
+            signal.explanation += f" ({vol_confirm['note']})"
+            if signal.confidence < 0.50:
+                logger.info(f"🚫 VOL REJECT: {signal.symbol} confidence too low after volume penalty")
+                return None
+
+        # Volume surge bonus — high volume confirms the move
+        if vol_confirm["ratio"] > 1.5 and vol_confirm["confirmed"]:
+            signal.confidence = min(0.95, signal.confidence * 1.05)
+            signal.explanation += f" (Strong volume: {vol_confirm['ratio']}x avg)"
+
+        # Final confidence gate after all adjustments
+        min_conf = strategy["params"].get("min_confidence", 0.60)
+        if signal.confidence < min_conf:
+            logger.info(f"🚫 FINAL REJECT: {signal.symbol} {signal.type.value} confidence "
+                        f"{signal.confidence:.0%} below min {min_conf:.0%} after filters")
+            return None
 
         return signal
 
@@ -1523,9 +1720,10 @@ class APEXBot:
     def start(self):
         mode = "PAPER" if self.config.PAPER_TRADE else "⚡ LIVE"
         logger.info("=" * 60)
-        logger.info(f"  APEX Trading Bot v8 | Mode: {mode}")
+        logger.info(f"  APEX Trading Bot v9 | Mode: {mode}")
         logger.info(f"  Active Position Manager: ENABLED")
         logger.info(f"  Features: Regime exits, Trailing stops, Time stops, Cooldowns, Correlation guard")
+        logger.info(f"  Filters: Multi-timeframe (4h) confirmation, Volume analysis")
         logger.info(f"  Assets: {', '.join(self.config.ASSETS)}")
         logger.info(f"  Max leverage: {self.config.MAX_LEVERAGE}x | Risk/trade: {self.config.RISK_PER_TRADE*100:.0f}%")
         logger.info(f"  Daily loss limit: {self.config.MAX_DAILY_LOSS*100:.0f}%")
@@ -1572,6 +1770,7 @@ class APEXBot:
         trade_fired = False
         signal_radar = []
         candles_map: Dict[str, List[Dict]] = {}
+        candles_4h_map: Dict[str, List[Dict]] = {}
 
         # Process manual close commands
         commands = self.sync.fetch_commands()
@@ -1654,7 +1853,15 @@ class APEXBot:
                 if self.position_manager.is_on_cooldown(symbol):
                     continue
 
-                signal = self.signal_engine.generate_signal(symbol, candles, self.strategy_id)
+                # Fetch 4h candles for multi-timeframe confirmation
+                candles_4h = candles_4h_map.get(symbol)
+                if candles_4h is None:
+                    candles_4h = self.client.get_candles(symbol, "4h", limit=200)
+                    candles_4h_map[symbol] = candles_4h or []
+
+                signal = self.signal_engine.generate_signal(
+                    symbol, candles, self.strategy_id, candles_4h=candles_4h
+                )
                 current_regime = self.signal_engine.regime_detector.detect(candles)
 
                 if signal:
