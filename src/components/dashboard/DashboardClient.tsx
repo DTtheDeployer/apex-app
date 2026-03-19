@@ -875,15 +875,31 @@ export default function DashboardClient({
                     </div>
                   </div>
 
+                  {/* Trade Explanation — always visible */}
+                  <div className="mt-1.5 flex items-start gap-1.5">
+                    <Info className="w-3 h-3 text-blue mt-0.5 flex-shrink-0" />
+                    <p className="text-[11px] text-white/50 leading-relaxed">
+                      {explanation || `Opened ${t.side} ${t.symbol} using ${(t as any).strategy || 'UNKNOWN'} strategy.`}
+                    </p>
+                  </div>
+
                   {isExpanded && (
                     <div className="mt-2 p-2 rounded-lg bg-white/5 border border-white/10">
-                      <div className="flex items-start gap-2 mb-3">
-                        <Info className="w-3 h-3 text-blue mt-0.5 flex-shrink-0" />
-                        <div className="text-xs text-muted leading-relaxed">
-                          {explanation || `Opened ${t.side} ${t.symbol} using ${(t as any).strategy || 'UNKNOWN'} strategy.`}
+                      <div className="grid grid-cols-3 gap-2 mb-3 text-center">
+                        <div>
+                          <p className="text-[9px] text-white/40 uppercase">Entry</p>
+                          <p className="text-xs font-mono">${entry.toLocaleString()}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] text-white/40 uppercase">Target</p>
+                          <p className="text-xs font-mono text-green">${tp.toLocaleString()}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] text-white/40 uppercase">Risk:Reward</p>
+                          <p className="text-xs font-mono">{slDist > 0 ? `1:${(tpDist / slDist).toFixed(1)}` : '—'}</p>
                         </div>
                       </div>
-                      
+
                       <button
                         onClick={async () => {
                           if (confirm(`Close ${t.symbol} position now?`)) {
@@ -970,10 +986,18 @@ export default function DashboardClient({
                   </div>
                   
                   {isExpanded && (
-                    <div className="mt-2 p-2 rounded-lg bg-white/5 border border-white/10 text-xs text-muted space-y-1">
+                    <div className="mt-2 p-2 rounded-lg bg-white/5 border border-white/10 text-xs text-muted space-y-1.5">
+                      {(t as any).explanation && (
+                        <div className="flex items-start gap-1.5 pb-1.5 border-b border-white/5">
+                          <Info className="w-3 h-3 text-blue mt-0.5 flex-shrink-0" />
+                          <p className="text-[11px] text-white/50 leading-relaxed">{(t as any).explanation}</p>
+                        </div>
+                      )}
                       <div className="flex justify-between"><span>Entry:</span><span className="text-white">${t.entry_price?.toLocaleString()}</span></div>
                       <div className="flex justify-between"><span>Exit:</span><span className="text-white">${t.exit_price?.toLocaleString()}</span></div>
-                      <div className="flex justify-between"><span>Strategy:</span><span className="text-blue">{(t as any).strategy || '—'}</span></div>
+                      {t.held_minutes != null && (
+                        <div className="flex justify-between"><span>Held:</span><span className="text-white">{t.held_minutes < 60 ? `${t.held_minutes}m` : `${(t.held_minutes / 60).toFixed(1)}h`}</span></div>
+                      )}
                     </div>
                   )}
                 </div>

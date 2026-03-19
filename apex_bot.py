@@ -357,25 +357,60 @@ class SignalEngine:
         bb_upper, bb_lower, bb_mid = self._calculate_bollinger(closes)
         atr = self._calculate_atr(highs, lows, closes)
         
+        signal = None
         if strategy_id == "apex_adaptive":
-            return self._strategy_apex_adaptive(symbol, candles, params, regime, macro_context,
+            signal = self._strategy_apex_adaptive(symbol, candles, params, regime, macro_context,
                                                  current_price, rsi, sma_20, sma_50, macd, bb_upper, bb_lower, bb_mid, atr, highs, lows)
         elif strategy_id == "momentum_rider":
-            return self._strategy_momentum_rider(symbol, params, regime, macro_context,
+            signal = self._strategy_momentum_rider(symbol, params, regime, macro_context,
                                                   current_price, rsi, sma_20, sma_50, macd, atr)
         elif strategy_id == "dip_hunter":
-            return self._strategy_dip_hunter(symbol, params, regime, macro_context,
+            signal = self._strategy_dip_hunter(symbol, params, regime, macro_context,
                                               current_price, rsi, bb_upper, bb_lower, bb_mid, atr)
         elif strategy_id == "breakout_blitz":
-            return self._strategy_breakout_blitz(symbol, params, regime, macro_context,
+            signal = self._strategy_breakout_blitz(symbol, params, regime, macro_context,
                                                   current_price, rsi, highs, lows, atr)
         elif strategy_id == "scalp_sniper":
-            return self._strategy_scalp_sniper(symbol, params, regime, macro_context,
+            signal = self._strategy_scalp_sniper(symbol, params, regime, macro_context,
                                                 current_price, rsi, sma_20, bb_upper, bb_lower, bb_mid, atr)
         elif strategy_id == "swing_king":
-            return self._strategy_swing_king(symbol, params, regime, macro_context,
+            signal = self._strategy_swing_king(symbol, params, regime, macro_context,
                                               current_price, rsi, sma_20, sma_50, macd, atr)
-        return None
+
+        # Enrich every signal with structured trade thesis
+        if signal:
+            signal = self._enrich_explanation(signal, atr, strategy)
+
+        return signal
+
+    def _enrich_explanation(self, signal: Signal, atr: float, strategy: Dict) -> Signal:
+        """Add structured context to every trade explanation: targets, R:R, expectations."""
+        entry = signal.entry_price
+        sl = signal.stop_loss
+        tp = signal.take_profit
+        risk_dist = abs(entry - sl)
+        reward_dist = abs(tp - entry)
+        rr = reward_dist / risk_dist if risk_dist > 0 else 0
+
+        # Expected move as percentage
+        tp_pct = (reward_dist / entry) * 100 if entry > 0 else 0
+        sl_pct = (risk_dist / entry) * 100 if entry > 0 else 0
+
+        # Hold time expectation from strategy
+        hold_time = strategy.get("hold_time", "varies")
+
+        # Build the enriched explanation
+        base = signal.explanation.rstrip(".")
+        enriched = (
+            f"{base}. "
+            f"Target: ${tp:,.2f} (+{tp_pct:.1f}%), "
+            f"Stop: ${sl:,.2f} (-{sl_pct:.1f}%). "
+            f"R:R {rr:.1f}:1. "
+            f"Market: {signal.regime.value.replace('_', ' ').title()}. "
+            f"Expected hold: {hold_time}."
+        )
+        signal.explanation = enriched
+        return signal
 
     def _strategy_apex_adaptive(self, symbol, candles, params, regime, macro_context,
                                  current_price, rsi, sma_20, sma_50, macd, bb_upper, bb_lower, bb_mid, atr, highs, lows):
