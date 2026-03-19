@@ -123,6 +123,15 @@ const RISK_LEVELS = [
   { id: 'high', name: 'High', pct: '6%' },
 ]
 
+const LEVERAGE_LEVELS = [
+  { id: 1, name: '1x', desc: 'No leverage' },
+  { id: 2, name: '2x', desc: 'Conservative' },
+  { id: 3, name: '3x', desc: 'Moderate' },
+  { id: 5, name: '5x', desc: 'Aggressive' },
+  { id: 10, name: '10x', desc: 'High risk' },
+  { id: 20, name: '20x', desc: 'Max risk' },
+]
+
 const REGIME_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any; description: string }> = {
   'TRENDING_UP': { 
     label: 'Trending Up', 
@@ -236,6 +245,9 @@ export default function DashboardClient({
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
+  const [leverage, setLeverage] = useState((config as any)?.leverage || 3)
+  const [showLeveragePicker, setShowLeveragePicker] = useState(false)
+
   const [autoTrading, setAutoTrading] = useState(botEnabled)
   const [togglingAutoTrading, setTogglingAutoTrading] = useState(false)
 
@@ -303,6 +315,29 @@ export default function DashboardClient({
       setSaving(false)
     }
   }
+
+  const handleSelectLeverage = async (lev: number) => {
+    setSaving(true)
+    try {
+      const res = await fetch('/api/bot/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          leverage: lev,
+        }),
+      })
+      if (res.ok) {
+        setLeverage(lev)
+        setShowLeveragePicker(false)
+        router.refresh()
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const currentLeverage = LEVERAGE_LEVELS.find(l => l.id === leverage) || LEVERAGE_LEVELS[2]
 
   const botOnline = heartbeat
     ? (Date.now() - new Date(heartbeat.created_at).getTime()) < 2 * 3600 * 1000
@@ -477,7 +512,51 @@ export default function DashboardClient({
               {currentStrat.holdTime}
             </span>
             <span className="px-2 py-1 rounded-lg bg-white/10 text-[11px] font-medium">{currentRisk.pct} Risk</span>
+            <button
+              onClick={() => setShowLeveragePicker(!showLeveragePicker)}
+              className={`px-2 py-1 rounded-lg text-[11px] font-medium flex items-center gap-1 transition-all ${
+                leverage >= 10 ? 'bg-red/20 text-red border border-red/30' :
+                leverage >= 5 ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+                'bg-white/10 text-white/80 border border-white/10'
+              } hover:bg-white/20`}
+            >
+              <Zap className="w-3 h-3" />
+              {currentLeverage.name}
+              <ChevronDown className={`w-3 h-3 transition-transform ${showLeveragePicker ? 'rotate-180' : ''}`} />
+            </button>
           </div>
+
+          {/* Leverage Picker Dropdown */}
+          {showLeveragePicker && (
+            <div className="mb-4 p-3 rounded-xl bg-black/30 border border-white/10">
+              <p className="text-[10px] text-white/50 uppercase font-semibold mb-2 tracking-wider">Max Leverage</p>
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+                {LEVERAGE_LEVELS.map((lev) => (
+                  <button
+                    key={lev.id}
+                    onClick={() => handleSelectLeverage(lev.id)}
+                    disabled={saving}
+                    className={`p-2 rounded-lg text-center transition-all ${
+                      leverage === lev.id
+                        ? lev.id >= 10 ? 'bg-red/20 border-red/40 text-red ring-1 ring-red/30'
+                          : lev.id >= 5 ? 'bg-amber-500/20 border-amber-500/40 text-amber-400 ring-1 ring-amber-500/30'
+                          : 'bg-teal/20 border-teal/40 text-teal ring-1 ring-teal/30'
+                        : 'bg-white/5 border-white/10 hover:bg-white/10'
+                    } border ${saving ? 'opacity-50' : ''}`}
+                  >
+                    <p className="text-sm font-bold">{lev.name}</p>
+                    <p className="text-[9px] text-white/40 mt-0.5">{lev.desc}</p>
+                  </button>
+                ))}
+              </div>
+              {leverage >= 10 && (
+                <div className="flex items-center gap-2 mt-2 p-2 rounded-lg bg-red/10 border border-red/20">
+                  <AlertTriangle className="w-3.5 h-3.5 text-red flex-shrink-0" />
+                  <p className="text-[10px] text-red">High leverage significantly increases liquidation risk. Use with caution.</p>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
             <div className="bg-black/20 rounded-lg p-2.5 text-center">

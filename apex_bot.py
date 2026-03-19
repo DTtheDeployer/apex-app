@@ -103,6 +103,13 @@ class Position:
     macro: str
     strategy: str = ""
     explanation: str = ""
+    # Active Position Manager fields
+    original_stop_loss: float = 0.0
+    trailing_stop: float = 0.0
+    highest_price: float = 0.0  # Tracks peak price since entry (LONG)
+    lowest_price: float = 999999.0  # Tracks trough price since entry (SHORT)
+    candles_held: int = 0
+    trailing_activated: bool = False
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  STRATEGY DEFINITIONS
@@ -111,94 +118,118 @@ class Position:
 STRATEGIES = {
     "apex_adaptive": {
         "name": "APEX Adaptive",
-        "description": "Adapts to market regime automatically",
+        "description": "Adapts to market regime automatically — selective, high-conviction entries only",
         "style": "hybrid",
         "hold_time": "varies",
         "icon": "🔄",
         "params": {
-            "trend_rsi_pullback": 50,
-            "trend_rsi_momentum_min": 50,
-            "trend_rsi_momentum_max": 70,
-            "mean_rev_rsi_oversold": 35,
-            "mean_rev_rsi_overbought": 65,
-            "min_confidence": 0.5,
-            "atr_sl_mult": 2.0,
-            "atr_tp_mult": 3.0,
+            "trend_rsi_pullback": 45,
+            "trend_rsi_momentum_min": 55,
+            "trend_rsi_momentum_max": 72,
+            "mean_rev_rsi_oversold": 30,
+            "mean_rev_rsi_overbought": 70,
+            "min_confidence": 0.62,
+            "atr_sl_mult": 2.5,
+            "atr_tp_mult": 4.0,
+            "trail_activation": 1.5,
+            "trail_step": 0.5,
+            "time_stop_candles": 12,
+            "cooldown_candles": 3,
         },
     },
     "momentum_rider": {
         "name": "Momentum Rider",
-        "description": "Ride strong trends with RSI + MACD confirmation",
+        "description": "Ride strong trends with RSI + MACD confirmation — wider stops, let winners run",
         "style": "trend",
         "hold_time": "hours-days",
         "icon": "🚀",
         "params": {
-            "rsi_min": 55,
+            "rsi_min": 58,
             "rsi_max": 75,
             "require_macd_confirm": True,
             "require_price_above_sma": True,
-            "min_confidence": 0.55,
-            "atr_sl_mult": 2.0,
-            "atr_tp_mult": 3.5,
+            "min_confidence": 0.60,
+            "atr_sl_mult": 2.5,
+            "atr_tp_mult": 4.5,
+            "trail_activation": 2.0,
+            "trail_step": 0.75,
+            "time_stop_candles": 18,
+            "cooldown_candles": 4,
         },
     },
     "dip_hunter": {
         "name": "Dip Hunter",
-        "description": "Buy oversold, sell overbought at Bollinger extremes",
+        "description": "Buy deep oversold, sell deep overbought at Bollinger extremes only",
         "style": "mean_reversion",
         "hold_time": "hours",
         "icon": "🎯",
         "params": {
-            "rsi_oversold": 30,
-            "rsi_overbought": 70,
+            "rsi_oversold": 25,
+            "rsi_overbought": 75,
             "bb_penetration": True,
-            "min_confidence": 0.5,
-            "atr_sl_mult": 1.5,
-            "atr_tp_mult": 2.0,
+            "min_confidence": 0.58,
+            "atr_sl_mult": 2.0,
+            "atr_tp_mult": 2.5,
+            "trail_activation": 1.0,
+            "trail_step": 0.4,
+            "time_stop_candles": 8,
+            "cooldown_candles": 3,
         },
     },
     "breakout_blitz": {
         "name": "Breakout Blitz",
-        "description": "Catch range breakouts on high momentum",
+        "description": "Catch confirmed range breakouts with momentum follow-through",
         "style": "breakout",
         "hold_time": "hours-days",
         "icon": "⚡",
         "params": {
-            "lookback_periods": 20,
-            "rsi_min": 50,
-            "rsi_max": 75,
-            "min_confidence": 0.5,
-            "atr_sl_mult": 1.5,
-            "atr_tp_mult": 3.0,
+            "lookback_periods": 24,
+            "rsi_min": 55,
+            "rsi_max": 78,
+            "min_confidence": 0.60,
+            "atr_sl_mult": 2.0,
+            "atr_tp_mult": 4.0,
+            "trail_activation": 1.5,
+            "trail_step": 0.6,
+            "time_stop_candles": 14,
+            "cooldown_candles": 4,
         },
     },
     "scalp_sniper": {
         "name": "Scalp Sniper",
-        "description": "Quick trades on micro pullbacks in ranging markets only",
+        "description": "Precision scalps at extreme levels in confirmed ranging markets",
         "style": "scalping",
         "hold_time": "minutes-hours",
         "icon": "🎯",
         "params": {
-            "rsi_oversold": 32,
-            "rsi_overbought": 68,
-            "min_confidence": 0.52,
-            "atr_sl_mult": 1.5,
-            "atr_tp_mult": 2.0,
+            "rsi_oversold": 25,
+            "rsi_overbought": 75,
+            "min_confidence": 0.60,
+            "atr_sl_mult": 1.8,
+            "atr_tp_mult": 2.5,
+            "trail_activation": 0.8,
+            "trail_step": 0.3,
+            "time_stop_candles": 6,
+            "cooldown_candles": 2,
         },
     },
     "swing_king": {
         "name": "Swing King",
-        "description": "Larger moves, wider stops, patient entries",
+        "description": "Patient multi-day entries with wide stops — maximum conviction only",
         "style": "swing",
         "hold_time": "days-weeks",
         "icon": "👑",
         "params": {
-            "rsi_oversold": 25,
-            "rsi_overbought": 75,
+            "rsi_oversold": 22,
+            "rsi_overbought": 78,
             "require_trend_align": True,
-            "min_confidence": 0.6,
-            "atr_sl_mult": 3.0,
-            "atr_tp_mult": 5.0,
+            "min_confidence": 0.65,
+            "atr_sl_mult": 3.5,
+            "atr_tp_mult": 6.0,
+            "trail_activation": 2.5,
+            "trail_step": 1.0,
+            "time_stop_candles": 36,
+            "cooldown_candles": 6,
         },
     },
 }
@@ -721,6 +752,241 @@ class RiskManager:
         return size, leverage
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  ACTIVE POSITION MANAGER — Regime-reactive exits, trailing stops, time stops
+# ══════════════════════════════════════════════════════════════════════════════
+
+class ActivePositionManager:
+    """
+    The core differentiator: actively manages open positions instead of
+    just waiting for static SL/TP. Checks regime shifts, trails stops,
+    enforces time stops, and manages trade cooldowns.
+    """
+
+    def __init__(self, signal_engine: 'SignalEngine'):
+        self.signal_engine = signal_engine
+        # Cooldown tracking: symbol -> (last_loss_time, cooldown_candles_remaining)
+        self.cooldowns: Dict[str, int] = {}
+
+    def manage_position(self, position: Position, candles: List[Dict],
+                        strategy_id: str) -> Optional[str]:
+        """
+        Evaluate an open position and return a close reason if it should exit.
+        Returns None if position should stay open.
+        """
+        if len(candles) < 50:
+            return None
+
+        strategy = STRATEGIES.get(strategy_id, STRATEGIES["apex_adaptive"])
+        params = strategy["params"]
+
+        closes = np.array([c["close"] for c in candles])
+        highs = np.array([c["high"] for c in candles])
+        lows = np.array([c["low"] for c in candles])
+        current_price = closes[-1]
+        atr = self.signal_engine._calculate_atr(highs, lows, closes)
+
+        # Increment candle counter
+        position.candles_held += 1
+
+        # Update price tracking
+        if position.side == "LONG":
+            position.highest_price = max(position.highest_price, current_price)
+        else:
+            position.lowest_price = min(position.lowest_price, current_price)
+
+        # --- CHECK 1: Regime-Reactive Exit ---
+        regime_exit = self._check_regime_exit(position, candles, current_price, atr)
+        if regime_exit:
+            return regime_exit
+
+        # --- CHECK 2: Trailing Stop ---
+        trail_exit = self._check_trailing_stop(position, current_price, atr, params)
+        if trail_exit:
+            return trail_exit
+
+        # --- CHECK 3: Time Stop (Conviction Decay) ---
+        time_exit = self._check_time_stop(position, current_price, params)
+        if time_exit:
+            return time_exit
+
+        # --- CHECK 4: Cross-Position Correlation (checked at cycle level) ---
+        # This is handled in the BotEngine.cycle() method
+
+        return None
+
+    def _check_regime_exit(self, position: Position, candles: List[Dict],
+                           current_price: float, atr: float) -> Optional[str]:
+        """
+        If the market regime has flipped against the position, exit or tighten.
+        This is the #1 game-changer — never hold a LONG into a confirmed downtrend.
+        """
+        current_regime = self.signal_engine.regime_detector.detect(candles)
+        entry_regime = position.regime
+
+        if position.side == "LONG":
+            if current_regime == Regime.TRENDING_DOWN:
+                # Regime flipped against us — immediate exit
+                logger.info(f"🔄 REGIME EXIT: {position.symbol} LONG entered in {entry_regime}, "
+                           f"regime now TRENDING_DOWN. Closing.")
+                return "REGIME_FLIP"
+            elif current_regime == Regime.VOLATILE and entry_regime in ["TRENDING_UP", "RANGING"]:
+                # Regime shifted to volatile — tighten stop to breakeven + 0.5 ATR
+                breakeven_stop = position.entry_price + (0.5 * atr)
+                if current_price > breakeven_stop and position.stop_loss < breakeven_stop:
+                    position.stop_loss = breakeven_stop
+                    logger.info(f"⚡ REGIME TIGHTEN: {position.symbol} LONG stop → breakeven+0.5ATR "
+                               f"(${breakeven_stop:.2f}) due to VOLATILE regime")
+        else:  # SHORT
+            if current_regime == Regime.TRENDING_UP:
+                logger.info(f"🔄 REGIME EXIT: {position.symbol} SHORT entered in {entry_regime}, "
+                           f"regime now TRENDING_UP. Closing.")
+                return "REGIME_FLIP"
+            elif current_regime == Regime.VOLATILE and entry_regime in ["TRENDING_DOWN", "RANGING"]:
+                breakeven_stop = position.entry_price - (0.5 * atr)
+                if current_price < breakeven_stop and position.stop_loss > breakeven_stop:
+                    position.stop_loss = breakeven_stop
+                    logger.info(f"⚡ REGIME TIGHTEN: {position.symbol} SHORT stop → breakeven+0.5ATR "
+                               f"(${breakeven_stop:.2f}) due to VOLATILE regime")
+
+        return None
+
+    def _check_trailing_stop(self, position: Position, current_price: float,
+                             atr: float, params: Dict) -> Optional[str]:
+        """
+        Activate trailing stop once price moves trail_activation * ATR in our favor.
+        Then trail by trail_step * ATR from the peak/trough.
+        """
+        trail_activation = params.get("trail_activation", 1.5)
+        trail_step = params.get("trail_step", 0.5)
+
+        if position.side == "LONG":
+            profit_in_atr = (current_price - position.entry_price) / atr if atr > 0 else 0
+
+            if profit_in_atr >= trail_activation:
+                if not position.trailing_activated:
+                    position.trailing_activated = True
+                    logger.info(f"📈 TRAIL ACTIVATED: {position.symbol} LONG at {profit_in_atr:.1f}x ATR profit")
+
+                # Trail from the highest price seen
+                new_trail = position.highest_price - (trail_step * atr)
+                if new_trail > position.stop_loss:
+                    position.stop_loss = new_trail
+                    position.trailing_stop = new_trail
+
+                # Check if trailed out
+                if current_price <= position.trailing_stop and position.trailing_stop > 0:
+                    logger.info(f"📉 TRAIL EXIT: {position.symbol} LONG hit trailing stop "
+                               f"${position.trailing_stop:.2f} (peak ${position.highest_price:.2f})")
+                    return "TRAILING_STOP"
+
+        else:  # SHORT
+            profit_in_atr = (position.entry_price - current_price) / atr if atr > 0 else 0
+
+            if profit_in_atr >= trail_activation:
+                if not position.trailing_activated:
+                    position.trailing_activated = True
+                    logger.info(f"📉 TRAIL ACTIVATED: {position.symbol} SHORT at {profit_in_atr:.1f}x ATR profit")
+
+                new_trail = position.lowest_price + (trail_step * atr)
+                if new_trail < position.stop_loss:
+                    position.stop_loss = new_trail
+                    position.trailing_stop = new_trail
+
+                if current_price >= position.trailing_stop and position.trailing_stop > 0:
+                    logger.info(f"📈 TRAIL EXIT: {position.symbol} SHORT hit trailing stop "
+                               f"${position.trailing_stop:.2f} (trough ${position.lowest_price:.2f})")
+                    return "TRAILING_STOP"
+
+        return None
+
+    def _check_time_stop(self, position: Position, current_price: float,
+                         params: Dict) -> Optional[str]:
+        """
+        If the trade hasn't moved meaningfully after N candles, the thesis is dead.
+        Exit at breakeven or small loss rather than waiting for full SL.
+        """
+        time_stop_candles = params.get("time_stop_candles", 12)
+
+        if position.candles_held >= time_stop_candles:
+            # Check if we're near breakeven (within 0.5% either direction)
+            pnl_pct = 0
+            if position.side == "LONG":
+                pnl_pct = (current_price - position.entry_price) / position.entry_price
+            else:
+                pnl_pct = (position.entry_price - current_price) / position.entry_price
+
+            # Only time-stop if we haven't moved significantly in our favor
+            if pnl_pct < 0.015:  # Less than 1.5% profit after N candles
+                logger.info(f"⏰ TIME STOP: {position.symbol} {position.side} held {position.candles_held} candles "
+                           f"with only {pnl_pct:.2%} profit. Thesis expired.")
+                return "TIME_STOP"
+
+        return None
+
+    def register_cooldown(self, symbol: str, strategy_id: str):
+        """Register a cooldown after a losing trade."""
+        strategy = STRATEGIES.get(strategy_id, STRATEGIES["apex_adaptive"])
+        cooldown = strategy["params"].get("cooldown_candles", 3)
+        self.cooldowns[symbol] = cooldown
+        logger.info(f"❄️ COOLDOWN: {symbol} blocked for {cooldown} candles after loss")
+
+    def tick_cooldowns(self):
+        """Decrement cooldown counters each cycle."""
+        expired = []
+        for symbol, remaining in self.cooldowns.items():
+            self.cooldowns[symbol] = remaining - 1
+            if self.cooldowns[symbol] <= 0:
+                expired.append(symbol)
+        for symbol in expired:
+            del self.cooldowns[symbol]
+            logger.info(f"✅ COOLDOWN EXPIRED: {symbol} ready to trade again")
+
+    def is_on_cooldown(self, symbol: str) -> bool:
+        return symbol in self.cooldowns
+
+    def check_correlation_exit(self, positions: List[Position],
+                               candles_map: Dict[str, List[Dict]]) -> List[str]:
+        """
+        If 60%+ of held positions are in assets that have flipped bearish/bullish
+        against our direction, that's a correlated macro move. Exit all.
+        """
+        if len(positions) < 2:
+            return []
+
+        bearish_count = 0
+        bullish_count = 0
+        longs = []
+        shorts = []
+
+        for pos in positions:
+            candles = candles_map.get(pos.symbol)
+            if not candles or len(candles) < 50:
+                continue
+            regime = self.signal_engine.regime_detector.detect(candles)
+            if pos.side == "LONG":
+                longs.append(pos)
+                if regime == Regime.TRENDING_DOWN:
+                    bearish_count += 1
+            else:
+                shorts.append(pos)
+                if regime == Regime.TRENDING_UP:
+                    bullish_count += 1
+
+        symbols_to_close = []
+        total = len(positions)
+        # If 60%+ of positions face adverse regime
+        if longs and bearish_count / max(len(longs), 1) >= 0.6:
+            symbols_to_close.extend([p.symbol for p in longs])
+            logger.warning(f"🚨 CORRELATION EXIT: {bearish_count}/{len(longs)} LONG positions "
+                          f"facing TRENDING_DOWN. Closing all longs.")
+        if shorts and bullish_count / max(len(shorts), 1) >= 0.6:
+            symbols_to_close.extend([p.symbol for p in shorts])
+            logger.warning(f"🚨 CORRELATION EXIT: {bullish_count}/{len(shorts)} SHORT positions "
+                          f"facing TRENDING_UP. Closing all shorts.")
+
+        return symbols_to_close
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  HYPERLIQUID CLIENT - PAPER + LIVE
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1193,6 +1459,7 @@ class APEXBot:
             max_positions=self.config.MAX_POSITIONS,
             max_leverage=self.config.MAX_LEVERAGE
         )
+        self.position_manager = ActivePositionManager(self.signal_engine)
         self.sync = BotSync(self.config.APEX_APP_URL, self.config.APEX_USER_ID, self.config.BOT_API_SECRET)
         self.strategy_id = "apex_adaptive"
         self.risk_per_trade = self.config.RISK_PER_TRADE
@@ -1207,15 +1474,22 @@ class APEXBot:
                 self.strategy_id = settings.get("strategy", "apex_adaptive")
                 self.risk_per_trade = settings.get("risk_per_trade", self.config.RISK_PER_TRADE)
                 self.auto_trading_enabled = settings.get("enabled", True)
+                # Apply leverage from dashboard settings
+                max_lev = settings.get("max_leverage")
+                if max_lev and isinstance(max_lev, int):
+                    self.risk_manager.max_leverage = max_lev
                 strategy_name = STRATEGIES.get(self.strategy_id, {}).get("name", self.strategy_id)
                 status = "🟢 ON" if self.auto_trading_enabled else "🔴 OFF"
-                logger.info(f"📋 Settings: {strategy_name}, {self.risk_per_trade*100:.0f}% risk, Auto: {status}")
+                logger.info(f"📋 Settings: {strategy_name}, {self.risk_per_trade*100:.0f}% risk, "
+                           f"{self.risk_manager.max_leverage}x max lev, Auto: {status}")
             self._last_settings_fetch = now
 
     def start(self):
         mode = "PAPER" if self.config.PAPER_TRADE else "⚡ LIVE"
         logger.info("=" * 60)
-        logger.info(f"  APEX Trading Bot v7 | Mode: {mode}")
+        logger.info(f"  APEX Trading Bot v8 | Mode: {mode}")
+        logger.info(f"  Active Position Manager: ENABLED")
+        logger.info(f"  Features: Regime exits, Trailing stops, Time stops, Cooldowns, Correlation guard")
         logger.info(f"  Assets: {', '.join(self.config.ASSETS)}")
         logger.info(f"  Max leverage: {self.config.MAX_LEVERAGE}x | Risk/trade: {self.config.RISK_PER_TRADE*100:.0f}%")
         logger.info(f"  Daily loss limit: {self.config.MAX_DAILY_LOSS*100:.0f}%")
@@ -1239,17 +1513,29 @@ class APEXBot:
                 logger.error(f"Cycle error: {e}")
                 time.sleep(10)
 
+    def _close_and_sync(self, position: Position, reason: str):
+        """Close a position and sync to dashboard. Registers cooldown on loss."""
+        result = self.client.close_position(position, reason)
+        if result:
+            self.sync.trade_close(position, result, self.config.PAPER_TRADE)
+            self.sync.delete_position(position.symbol)
+            # Register cooldown if the trade was a loss
+            if result.get("pnl", 0) < 0:
+                self.position_manager.register_cooldown(position.symbol, self.strategy_id)
+
     def cycle(self):
         equity = self.client.get_equity()
         positions = self.client.get_positions()
         positions_with_pnl = self.client.get_positions_with_pnl()
 
         self.risk_manager.reset_daily(equity)
+        self.position_manager.tick_cooldowns()
 
         macro_context, _ = self.signal_engine.macro_calendar.get_context()
         current_regime = Regime.UNKNOWN
         trade_fired = False
         signal_radar = []
+        candles_map: Dict[str, List[Dict]] = {}
 
         # Process manual close commands
         commands = self.sync.fetch_commands()
@@ -1258,40 +1544,78 @@ class APEXBot:
                 symbol = cmd.get("payload", {}).get("symbol")
                 for position in positions:
                     if position.symbol == symbol:
-                        result = self.client.close_position(position, "MANUAL")
-                        if result:
-                            self.sync.trade_close(position, result, self.config.PAPER_TRADE)
-                            self.sync.delete_position(symbol)
-                            logger.info(f"🖐️ Manual close: {symbol}")
+                        self._close_and_sync(position, "MANUAL")
+                        logger.info(f"🖐️ Manual close: {symbol}")
                         break
                 self.sync.ack_command(cmd.get("id"))
 
         positions = self.client.get_positions()
         positions_with_pnl = self.client.get_positions_with_pnl()
 
-        # Check SL/TP
+        # ═══════════════════════════════════════════════════════════════
+        #  ACTIVE POSITION MANAGEMENT — the game changer
+        # ═══════════════════════════════════════════════════════════════
+
+        # Phase 1: Check static SL/TP (unchanged — these are the hard safety net)
         for position in positions:
             close_reason = self.client.check_sl_tp(position)
             if close_reason:
-                result = self.client.close_position(position, close_reason)
-                if result:
-                    self.sync.trade_close(position, result, self.config.PAPER_TRADE)
-                    self.sync.delete_position(position.symbol)
+                self._close_and_sync(position, close_reason)
+
+        positions = self.client.get_positions()
+
+        # Phase 2: Active management — regime exits, trailing stops, time stops
+        for position in list(positions):
+            candles = self.client.get_candles(position.symbol, self.config.TIMEFRAME)
+            if candles:
+                candles_map[position.symbol] = candles
+                close_reason = self.position_manager.manage_position(
+                    position, candles, self.strategy_id
+                )
+                if close_reason:
+                    self._close_and_sync(position, close_reason)
+
+        positions = self.client.get_positions()
+
+        # Phase 3: Cross-position correlation check
+        if len(positions) >= 2:
+            # Build candles_map for any positions we haven't fetched yet
+            for position in positions:
+                if position.symbol not in candles_map:
+                    c = self.client.get_candles(position.symbol, self.config.TIMEFRAME)
+                    if c:
+                        candles_map[position.symbol] = c
+
+            symbols_to_close = self.position_manager.check_correlation_exit(
+                positions, candles_map
+            )
+            for position in positions:
+                if position.symbol in symbols_to_close:
+                    self._close_and_sync(position, "CORRELATION_EXIT")
 
         positions = self.client.get_positions()
         positions_with_pnl = self.client.get_positions_with_pnl()
 
-        # Scan and trade
+        # ═══════════════════════════════════════════════════════════════
+        #  SIGNAL SCANNING & NEW ENTRIES
+        # ═══════════════════════════════════════════════════════════════
+
         if self.auto_trading_enabled and self.risk_manager.check_risk_limits(positions, equity):
             for symbol in self.config.ASSETS:
-                candles = self.client.get_candles(symbol, self.config.TIMEFRAME)
+                candles = candles_map.get(symbol) or self.client.get_candles(symbol, self.config.TIMEFRAME)
                 if not candles:
                     continue
+                candles_map[symbol] = candles
 
                 scan = self.signal_engine.scan_signal_strength(symbol, candles)
                 signal_radar.append(scan)
 
+                # Skip if already in a position for this symbol
                 if any(p.symbol == symbol for p in positions):
+                    continue
+
+                # Skip if on cooldown after a recent loss
+                if self.position_manager.is_on_cooldown(symbol):
                     continue
 
                 signal = self.signal_engine.generate_signal(symbol, candles, self.strategy_id)
@@ -1304,18 +1628,25 @@ class APEXBot:
                     )
 
                     if not self.config.PAPER_TRADE:
-                        logger.info(f"🔔 LIVE signal: {signal.type.value} {symbol} | confidence: {signal.confidence:.0%} | size: ${size:.0f} | lev: {leverage}x")
+                        logger.info(f"🔔 LIVE signal: {signal.type.value} {symbol} | "
+                                   f"confidence: {signal.confidence:.0%} | size: ${size:.0f} | lev: {leverage}x")
 
                     position = self.client.open_position(signal, size, leverage)
                     if position:
+                        # Initialize APM tracking fields
+                        position.original_stop_loss = position.stop_loss
+                        position.highest_price = position.entry_price
+                        position.lowest_price = position.entry_price
                         trade_fired = True
                         self.sync.trade_signal(position, signal.confidence, self.config.PAPER_TRADE)
                         self.sync.save_position(position)
+                        positions = self.client.get_positions()
                         positions_with_pnl = self.client.get_positions_with_pnl()
         else:
             for symbol in self.config.ASSETS:
-                candles = self.client.get_candles(symbol, self.config.TIMEFRAME)
+                candles = candles_map.get(symbol) or self.client.get_candles(symbol, self.config.TIMEFRAME)
                 if candles:
+                    candles_map[symbol] = candles
                     scan = self.signal_engine.scan_signal_strength(symbol, candles)
                     signal_radar.append(scan)
                     current_regime = self.signal_engine.regime_detector.detect(candles)
@@ -1335,8 +1666,9 @@ class APEXBot:
         hottest = max(signal_radar, key=lambda x: x["strength"]) if signal_radar else None
         hot_str = f" | 🔥 {hottest['symbol']} {hottest['strength']}%" if hottest and hottest['strength'] >= 50 else ""
         auto_str = "" if self.auto_trading_enabled else " | ⏸️ PAUSED"
+        cooldown_str = f" | ❄️ {len(self.position_manager.cooldowns)}" if self.position_manager.cooldowns else ""
 
-        logger.info(f"{mode_str} ${equity:.0f} | [{pos_str or 'none'}] | {strategy_name}{hot_str}{auto_str}")
+        logger.info(f"{mode_str} ${equity:.0f} | [{pos_str or 'none'}] | {strategy_name}{hot_str}{cooldown_str}{auto_str}")
 
 
 if __name__ == "__main__":

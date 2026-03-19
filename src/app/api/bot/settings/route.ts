@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
   // Fetch from bot_configs
   const { data: configData, error: configError } = await supabase
     .from('bot_configs')
-    .select('strategy_mode, risk_level, max_positions, assets, testnet')
+    .select('strategy_mode, risk_level, leverage, max_positions, assets, testnet')
     .eq('user_id', userId)
     .single()
 
@@ -49,6 +49,7 @@ export async function GET(request: NextRequest) {
     strategy_mode: configData.strategy_mode || 'balanced',
     strategy: settingsData?.strategy || 'apex_adaptive',
     risk_per_trade: riskMap[configData.risk_level] || 0.04,
+    max_leverage: configData.leverage || 3,
     max_positions: configData.max_positions || 3,
     assets: configData.assets || ['BTC', 'ETH', 'SOL', 'ARB', 'DOGE'],
     testnet: configData.testnet ?? true,
@@ -111,9 +112,10 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { enabled, strategy } = body
+    const { enabled, strategy, leverage } = body
     const user_id = user.id
 
+    // Update bot_settings (enabled, strategy)
     const updateData: any = { user_id }
     if (typeof enabled === 'boolean') {
       updateData.enabled = enabled
@@ -122,20 +124,34 @@ export async function PATCH(request: NextRequest) {
       updateData.strategy = strategy
     }
 
-    if (Object.keys(updateData).length <= 1) {
+    if (Object.keys(updateData).length > 1) {
+      const { error } = await supabase
+        .from('bot_settings')
+        .upsert(updateData, { onConflict: 'user_id' })
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 })
+      }
+    }
+
+    // Update bot_configs (leverage)
+    if (typeof leverage === 'number' && leverage >= 1 && leverage <= 20) {
+      const { error: leverageError } = await supabase
+        .from('bot_configs')
+        .update({ leverage, updated_at: new Date().toISOString() })
+        .eq('user_id', user_id)
+
+      if (leverageError) {
+        return NextResponse.json({ error: leverageError.message }, { status: 500 })
+      }
+    }
+
+    const hasUpdate = Object.keys(updateData).length > 1 || typeof leverage === 'number'
+    if (!hasUpdate) {
       return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
     }
 
-    // Use upsert instead of update
-    const { error } = await supabase
-      .from('bot_settings')
-      .upsert(updateData, { onConflict: 'user_id' })
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ success: true, ...updateData })
+    return NextResponse.json({ success: true, ...updateData, ...(leverage ? { leverage } : {}) })
   } catch (e) {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
   }
