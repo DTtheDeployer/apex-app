@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 import {
   TrendingUp, TrendingDown, DollarSign, Percent,
   AlertTriangle, CheckCircle, RefreshCw, Target,
@@ -20,7 +21,17 @@ interface AssetPrice {
 
 export default function ManualTradePage() {
   const router = useRouter()
-  
+
+  // Auth state
+  const [userId, setUserId] = useState<string | null>(null)
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) setUserId(user.id)
+      else router.push('/login')
+    })
+  }, [router])
+
   // Form state
   const [selectedAsset, setSelectedAsset] = useState('BTC')
   const [side, setSide] = useState<'LONG' | 'SHORT'>('LONG')

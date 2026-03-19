@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
-APEX Trading Bot v7 - Multi-Strategy with Live Trading
-=======================================================
+APEX Trading Bot v10 - Multi-Strategy with Live Trading
+========================================================
 Supports paper trading and live trading via Hyperliquid SDK.
+Features: Active Position Manager, Multi-Timeframe, Volume Analysis,
+          Funding Rate Awareness, Partial Exits, Dynamic Sizing, Notifications
 """
 
 from dotenv import load_dotenv
@@ -110,6 +112,9 @@ class Position:
     lowest_price: float = 999999.0  # Tracks trough price since entry (SHORT)
     candles_held: int = 0
     trailing_activated: bool = False
+    # Partial exit tracking
+    partial_exits_taken: int = 0  # How many partial exits have been taken (0, 1, 2)
+    original_size: float = 0.0   # Original position size before any partials
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  STRATEGY DEFINITIONS
@@ -331,7 +336,8 @@ class SignalEngine:
         self.macro_calendar = MacroCalendar()
     
     def generate_signal(self, symbol: str, candles: List[Dict], strategy_id: str = "apex_adaptive",
-                         candles_4h: Optional[List[Dict]] = None) -> Optional[Signal]:
+                         candles_4h: Optional[List[Dict]] = None,
+                         funding_rate: float = 0.0) -> Optional[Signal]:
         if len(candles) < 50:
             return None
 
@@ -385,9 +391,9 @@ class SignalEngine:
             signal = self._strategy_swing_king(symbol, params, regime, macro_context,
                                               current_price, rsi, sma_20, sma_50, macd, atr)
 
-        # ── Apply Multi-Timeframe & Volume Filters ─────────────────────
+        # ── Apply Multi-Timeframe, Volume & Funding Rate Filters ────────
         if signal:
-            signal = self._apply_htf_volume_filter(signal, htf_bias, vol_confirm, strategy)
+            signal = self._apply_htf_volume_filter(signal, htf_bias, vol_confirm, strategy, funding_rate)
 
         # Enrich every signal with structured trade thesis
         if signal:
@@ -508,14 +514,38 @@ class SignalEngine:
         }
 
     def _apply_htf_volume_filter(self, signal: Signal, htf_bias: str,
-                                  vol_confirm: Dict, strategy: Dict) -> Optional[Signal]:
+                                  vol_confirm: Dict, strategy: Dict,
+                                  funding_rate: float = 0.0) -> Optional[Signal]:
         """
-        Gate every signal through multi-timeframe alignment and volume confirmation.
-        This is the master filter — no trade passes without both checks.
+        Gate every signal through multi-timeframe alignment, volume confirmation,
+        and funding rate awareness. No trade passes without all checks.
         """
         strategy_style = strategy.get("style", "hybrid")
         is_long = signal.type == SignalType.LONG
         is_short = signal.type == SignalType.SHORT
+
+        # ── Funding Rate Filter ───────────────────────────────────────
+        # Positive funding = longs pay shorts (crowded long), negative = shorts pay longs
+        if abs(funding_rate) > 0.0001:  # Only act on meaningful funding
+            annual_rate = funding_rate * 3 * 365  # Hourly rate → annualized
+            if is_long and funding_rate > 0.0003:
+                # High positive funding = crowded long, penalize longs
+                penalty = min(0.85, 1.0 - abs(funding_rate) * 500)
+                signal.confidence *= penalty
+                signal.explanation += f" (Funding headwind: {annual_rate:.0f}% APR against)"
+            elif is_short and funding_rate < -0.0003:
+                # High negative funding = crowded short, penalize shorts
+                penalty = min(0.85, 1.0 - abs(funding_rate) * 500)
+                signal.confidence *= penalty
+                signal.explanation += f" (Funding headwind: {abs(annual_rate):.0f}% APR against)"
+            elif is_long and funding_rate < -0.0002:
+                # Negative funding = shorts pay us, boost longs
+                signal.confidence = min(0.95, signal.confidence * 1.05)
+                signal.explanation += f" (Funding tailwind: {abs(annual_rate):.0f}% APR earned)"
+            elif is_short and funding_rate > 0.0002:
+                # Positive funding = longs pay us, boost shorts
+                signal.confidence = min(0.95, signal.confidence * 1.05)
+                signal.explanation += f" (Funding tailwind: {annual_rate:.0f}% APR earned)"
 
         # ── HTF Filter ─────────────────────────────────────────────────
         # Trend strategies: MUST align with 4h direction. No LONG against 4h bearish.
@@ -948,6 +978,9 @@ class RiskManager:
         self._start_equity = None
         self._daily_start_equity = None
         self._day = datetime.now(timezone.utc).date()
+        # Dynamic sizing: track recent trade outcomes
+        self._recent_results: List[float] = []  # Last N trade PnL percentages
+        self._consecutive_losses: int = 0
 
     def reset_daily(self, equity: float):
         today = datetime.now(timezone.utc).date()
@@ -956,6 +989,52 @@ class RiskManager:
             self._day = today
         if self._start_equity is None:
             self._start_equity = equity
+
+    def record_trade_result(self, pnl_pct: float):
+        """Track trade results for dynamic sizing."""
+        self._recent_results.append(pnl_pct)
+        if len(self._recent_results) > 20:
+            self._recent_results = self._recent_results[-20:]
+        if pnl_pct < 0:
+            self._consecutive_losses += 1
+        else:
+            self._consecutive_losses = 0
+
+    def _get_kelly_fraction(self) -> float:
+        """Half-Kelly criterion: optimal fraction based on win rate and payoff ratio."""
+        if len(self._recent_results) < 5:
+            return 1.0  # Not enough data, use full size
+
+        wins = [r for r in self._recent_results if r > 0]
+        losses = [r for r in self._recent_results if r < 0]
+
+        if not losses or not wins:
+            return 1.0
+
+        win_rate = len(wins) / len(self._recent_results)
+        avg_win = np.mean(wins)
+        avg_loss = abs(np.mean(losses))
+
+        if avg_loss == 0:
+            return 1.0
+
+        payoff_ratio = avg_win / avg_loss
+        # Kelly: f = (p * b - q) / b  where p=win_rate, q=loss_rate, b=payoff_ratio
+        kelly = (win_rate * payoff_ratio - (1 - win_rate)) / payoff_ratio
+        # Use half-Kelly for safety, clamp between 0.25 and 1.0
+        half_kelly = max(0.25, min(1.0, kelly * 0.5))
+        return half_kelly
+
+    def _get_streak_multiplier(self) -> float:
+        """Reduce size after consecutive losses."""
+        if self._consecutive_losses == 0:
+            return 1.0
+        elif self._consecutive_losses == 1:
+            return 0.85
+        elif self._consecutive_losses == 2:
+            return 0.65
+        else:
+            return 0.5  # 3+ consecutive losses: half size
 
     def check_risk_limits(self, positions: List[Position], equity: float) -> bool:
         if len(positions) >= self.max_positions:
@@ -970,7 +1049,16 @@ class RiskManager:
         if not equity or equity <= 0 or np.isnan(equity):
             return 0, 1
 
-        risk_amount = equity * risk_per_trade * confidence
+        # Dynamic sizing adjustments
+        kelly = self._get_kelly_fraction()
+        streak_mult = self._get_streak_multiplier()
+        size_mult = kelly * streak_mult
+
+        if size_mult < 1.0:
+            logger.info(f"📊 Dynamic sizing: {size_mult:.0%} (Kelly: {kelly:.0%}, Streak: {streak_mult:.0%}, "
+                       f"Losses: {self._consecutive_losses})")
+
+        risk_amount = equity * risk_per_trade * confidence * size_mult
         price_risk = abs(entry - stop_loss) / entry
 
         if price_risk == 0:
@@ -1042,7 +1130,12 @@ class ActivePositionManager:
         if time_exit:
             return time_exit
 
-        # --- CHECK 4: Cross-Position Correlation (checked at cycle level) ---
+        # --- CHECK 4: Partial Exit (Scale-Out) ---
+        partial = self._check_partial_exit(position, current_price, atr, params)
+        if partial:
+            return partial
+
+        # --- CHECK 5: Cross-Position Correlation (checked at cycle level) ---
         # This is handled in the BotEngine.cycle() method
 
         return None
@@ -1153,6 +1246,36 @@ class ActivePositionManager:
                 logger.info(f"⏰ TIME STOP: {position.symbol} {position.side} held {position.candles_held} candles "
                            f"with only {pnl_pct:.2%} profit. Thesis expired.")
                 return "TIME_STOP"
+
+        return None
+
+    def _check_partial_exit(self, position: Position, current_price: float,
+                            atr: float, params: Dict) -> Optional[str]:
+        """
+        Scale out in tranches: 25% at 1x target, 50% at 2x target, trail the rest.
+        Returns 'PARTIAL_25' or 'PARTIAL_50' for partial closes.
+        """
+        if position.partial_exits_taken >= 2:
+            return None  # Already took both partials, let trailing stop handle the rest
+
+        risk_dist = abs(position.entry_price - position.original_stop_loss) if position.original_stop_loss else atr
+        if risk_dist == 0:
+            return None
+
+        if position.side == "LONG":
+            profit_r = (current_price - position.entry_price) / risk_dist
+        else:
+            profit_r = (position.entry_price - current_price) / risk_dist
+
+        # First partial: 25% off at 1x R
+        if position.partial_exits_taken == 0 and profit_r >= 1.0:
+            logger.info(f"💰 PARTIAL 25%: {position.symbol} {position.side} at {profit_r:.1f}R profit")
+            return "PARTIAL_25"
+
+        # Second partial: 50% off at 2x R
+        if position.partial_exits_taken == 1 and profit_r >= 2.0:
+            logger.info(f"💰 PARTIAL 50%: {position.symbol} {position.side} at {profit_r:.1f}R profit")
+            return "PARTIAL_50"
 
         return None
 
@@ -1315,6 +1438,30 @@ class HyperliquidClient:
             logger.error(f"Failed to get equity: {e}")
             return 0.0
 
+    def get_funding_rates(self) -> Dict[str, float]:
+        """Fetch current funding rates from Hyperliquid. Positive = longs pay, Negative = shorts pay."""
+        try:
+            response = self.session.post(
+                self.INFO_URL,
+                json={"type": "metaAndAssetCtxs"},
+                timeout=10
+            )
+            if response.status_code == 200:
+                data = response.json()
+                meta = data[0] if isinstance(data, list) and len(data) > 0 else {}
+                asset_ctxs = data[1] if isinstance(data, list) and len(data) > 1 else []
+                universe = meta.get("universe", [])
+                rates = {}
+                for i, ctx in enumerate(asset_ctxs):
+                    if i < len(universe):
+                        symbol = universe[i]["name"]
+                        funding = float(ctx.get("funding", 0))
+                        rates[symbol] = funding
+                return rates
+        except Exception as e:
+            logger.debug(f"Funding rate fetch error: {e}")
+        return {}
+
     def get_positions(self) -> List[Position]:
         if self.paper:
             return list(self.paper_positions.values())
@@ -1347,6 +1494,18 @@ class HyperliquidClient:
             current_price = self.get_price(p.symbol)
             unrealized = self._calculate_unrealized_pnl(p) if current_price else 0
             pnl_pct = (unrealized / p.size * 100) if p.size > 0 else 0
+
+            # Calculate liquidation price estimate
+            # Liq price = entry * (1 - 1/leverage) for LONG, entry * (1 + 1/leverage) for SHORT
+            liq_price = 0.0
+            if p.leverage > 0:
+                margin_fraction = 1.0 / p.leverage
+                if p.side == "LONG":
+                    liq_price = p.entry_price * (1 - margin_fraction * 0.9)  # 90% of margin = maintenance
+                else:
+                    liq_price = p.entry_price * (1 + margin_fraction * 0.9)
+            liq_distance_pct = abs(current_price - liq_price) / current_price * 100 if current_price else 0
+
             result.append({
                 "id": p.id, "symbol": p.symbol, "side": p.side,
                 "entry_price": p.entry_price, "current_price": current_price,
@@ -1356,6 +1515,8 @@ class HyperliquidClient:
                 "strategy": p.strategy, "explanation": p.explanation,
                 "regime": p.regime,
                 "opened_at": p.entry_time.isoformat() if p.entry_time else None,
+                "liquidation_price": round(liq_price, 2),
+                "liquidation_distance_pct": round(liq_distance_pct, 1),
             })
         return result
 
@@ -1675,6 +1836,96 @@ class BotSync:
         })
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  NOTIFICATION DISPATCHER — Discord & Telegram webhooks
+# ══════════════════════════════════════════════════════════════════════════════
+
+class NotificationDispatcher:
+    """Sends trade notifications to Discord and/or Telegram webhooks."""
+
+    def __init__(self):
+        self.discord_webhook = os.getenv("DISCORD_WEBHOOK_URL", "")
+        self.telegram_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        self.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+        self.session = requests.Session()
+        self.enabled = bool(self.discord_webhook or (self.telegram_token and self.telegram_chat_id))
+        if self.enabled:
+            channels = []
+            if self.discord_webhook:
+                channels.append("Discord")
+            if self.telegram_token:
+                channels.append("Telegram")
+            logger.info(f"🔔 Notifications enabled: {', '.join(channels)}")
+
+    def notify_trade_open(self, position: 'Position', equity: float):
+        if not self.enabled:
+            return
+        side_emoji = "🟢" if position.side == "LONG" else "🔴"
+        msg = (
+            f"{side_emoji} **NEW {position.side}** | {position.symbol}\n"
+            f"Entry: ${position.entry_price:,.2f} | Size: ${position.size:,.0f} | Lev: {position.leverage}x\n"
+            f"SL: ${position.stop_loss:,.2f} | TP: ${position.take_profit:,.2f}\n"
+            f"Strategy: {position.strategy} | Equity: ${equity:,.0f}\n"
+            f"_{position.explanation[:200]}_"
+        )
+        self._send(msg)
+
+    def notify_trade_close(self, result: Dict, equity: float):
+        if not self.enabled:
+            return
+        pnl = result.get("pnl", 0)
+        pnl_emoji = "✅" if pnl >= 0 else "❌"
+        msg = (
+            f"{pnl_emoji} **CLOSED** | {result['symbol']} {result['side']}\n"
+            f"Entry: ${result['entry_price']:,.2f} → Exit: ${result['exit_price']:,.2f}\n"
+            f"P&L: ${pnl:+,.2f} ({result.get('pnl_pct', 0):+.1f}%) | Reason: {result['reason']}\n"
+            f"Held: {result.get('held_minutes', 0)}min | Equity: ${equity:,.0f}"
+        )
+        self._send(msg)
+
+    def notify_regime_flip(self, symbol: str, old_regime: str, new_regime: str):
+        if not self.enabled:
+            return
+        msg = f"🔄 **REGIME FLIP** | {symbol}: {old_regime} → {new_regime}"
+        self._send(msg)
+
+    def notify_circuit_breaker(self, equity: float, daily_start: float):
+        if not self.enabled:
+            return
+        loss_pct = ((daily_start - equity) / daily_start) * 100
+        msg = (
+            f"🛑 **CIRCUIT BREAKER** | Daily loss limit hit!\n"
+            f"Equity: ${equity:,.0f} (down {loss_pct:.1f}% from ${daily_start:,.0f})\n"
+            f"Auto-trading paused until tomorrow."
+        )
+        self._send(msg)
+
+    def _send(self, message: str):
+        if self.discord_webhook:
+            self._send_discord(message)
+        if self.telegram_token and self.telegram_chat_id:
+            self._send_telegram(message)
+
+    def _send_discord(self, message: str):
+        try:
+            self.session.post(self.discord_webhook, json={"content": message}, timeout=5)
+        except Exception as e:
+            logger.debug(f"Discord notification failed: {e}")
+
+    def _send_telegram(self, message: str):
+        try:
+            # Convert markdown bold to Telegram HTML
+            text = message.replace("**", "").replace("_", "")
+            url = f"https://api.telegram.org/bot{self.telegram_token}/sendMessage"
+            self.session.post(url, json={
+                "chat_id": self.telegram_chat_id,
+                "text": text,
+                "parse_mode": "HTML"
+            }, timeout=5)
+        except Exception as e:
+            logger.debug(f"Telegram notification failed: {e}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  MAIN BOT
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1694,10 +1945,13 @@ class APEXBot:
         )
         self.position_manager = ActivePositionManager(self.signal_engine)
         self.sync = BotSync(self.config.APEX_APP_URL, self.config.APEX_USER_ID, self.config.BOT_API_SECRET)
+        self.notifications = NotificationDispatcher()
         self.strategy_id = "apex_adaptive"
         self.risk_per_trade = self.config.RISK_PER_TRADE
         self.auto_trading_enabled = True
         self._last_settings_fetch = 0
+        self._funding_rates: Dict[str, float] = {}
+        self._last_funding_fetch = 0
 
     def fetch_settings(self):
         now = time.time()
@@ -1720,10 +1974,12 @@ class APEXBot:
     def start(self):
         mode = "PAPER" if self.config.PAPER_TRADE else "⚡ LIVE"
         logger.info("=" * 60)
-        logger.info(f"  APEX Trading Bot v9 | Mode: {mode}")
+        logger.info(f"  APEX Trading Bot v10 | Mode: {mode}")
         logger.info(f"  Active Position Manager: ENABLED")
         logger.info(f"  Features: Regime exits, Trailing stops, Time stops, Cooldowns, Correlation guard")
+        logger.info(f"  Features: Partial exits (scale-out), Dynamic sizing (Kelly), Funding rate awareness")
         logger.info(f"  Filters: Multi-timeframe (4h) confirmation, Volume analysis")
+        logger.info(f"  Notifications: {'ENABLED' if self.notifications.enabled else 'OFF (set DISCORD_WEBHOOK_URL or TELEGRAM_BOT_TOKEN)'}")
         logger.info(f"  Assets: {', '.join(self.config.ASSETS)}")
         logger.info(f"  Max leverage: {self.config.MAX_LEVERAGE}x | Risk/trade: {self.config.RISK_PER_TRADE*100:.0f}%")
         logger.info(f"  Daily loss limit: {self.config.MAX_DAILY_LOSS*100:.0f}%")
@@ -1747,12 +2003,76 @@ class APEXBot:
                 logger.error(f"Cycle error: {e}")
                 time.sleep(10)
 
+    def _handle_partial_close(self, position: Position, reason: str):
+        """Handle partial exits — reduce position size instead of full close."""
+        if reason == "PARTIAL_25":
+            close_pct = 0.25
+        elif reason == "PARTIAL_50":
+            close_pct = 0.50
+        else:
+            return
+
+        original_size = position.original_size or position.size
+        close_size = original_size * close_pct
+
+        if self.config.PAPER_TRADE:
+            # Paper: adjust position size and balance
+            current_price = self.client.get_price(position.symbol)
+            if not current_price:
+                return
+            if position.side == "LONG":
+                pnl = (current_price - position.entry_price) / position.entry_price * close_size
+            else:
+                pnl = (position.entry_price - current_price) / position.entry_price * close_size
+            self.client.paper_balance += pnl
+            position.size -= close_size
+            position.partial_exits_taken += 1
+            # Move stop to breakeven after first partial
+            if position.partial_exits_taken == 1:
+                position.stop_loss = position.entry_price
+                logger.info(f"🔒 Stop → breakeven after partial exit on {position.symbol}")
+            logger.info(f"💰 Partial close {close_pct:.0%} of {position.symbol} | P&L: ${pnl:+.2f} | Remaining: ${position.size:.0f}")
+            # Sync partial result
+            self.sync.heartbeat(
+                equity=self.client.get_equity(), positions=self.client.get_positions_with_pnl(),
+                regime="", macro="", strategy=self.strategy_id
+            )
+        else:
+            # Live: close partial size via market order
+            try:
+                current_price = self.client.get_price(position.symbol)
+                if not current_price:
+                    return
+                meta = self.client._info.meta()
+                asset_idx = next((i for i, a in enumerate(meta["universe"]) if a["name"] == position.symbol), None)
+                sz_decimals = meta["universe"][asset_idx].get("szDecimals", 3) if asset_idx is not None else 3
+                asset_close_size = round(close_size / position.entry_price, sz_decimals)
+
+                is_buy = position.side == "SHORT"
+                order_result = self.client._exchange.market_open(
+                    position.symbol, is_buy, asset_close_size, None, 0.01
+                )
+                if order_result and order_result.get("status") == "ok":
+                    position.size -= close_size
+                    position.partial_exits_taken += 1
+                    if position.partial_exits_taken == 1:
+                        position.stop_loss = position.entry_price
+                    logger.info(f"💰 LIVE partial {close_pct:.0%} of {position.symbol}")
+            except Exception as e:
+                logger.error(f"Partial close failed: {e}")
+
     def _close_and_sync(self, position: Position, reason: str):
         """Close a position and sync to dashboard. Registers cooldown on loss."""
         result = self.client.close_position(position, reason)
         if result:
             self.sync.trade_close(position, result, self.config.PAPER_TRADE)
             self.sync.delete_position(position.symbol)
+            # Record result for dynamic sizing
+            pnl_pct = result.get("pnl_pct", 0)
+            self.risk_manager.record_trade_result(pnl_pct)
+            # Notify
+            equity = self.client.get_equity()
+            self.notifications.notify_trade_close(result, equity)
             # Register cooldown if the trade was a loss
             if result.get("pnl", 0) < 0:
                 self.position_manager.register_cooldown(position.symbol, self.strategy_id)
@@ -1799,7 +2119,7 @@ class APEXBot:
 
         positions = self.client.get_positions()
 
-        # Phase 2: Active management — regime exits, trailing stops, time stops
+        # Phase 2: Active management — regime exits, trailing stops, time stops, partials
         for position in list(positions):
             candles = self.client.get_candles(position.symbol, self.config.TIMEFRAME)
             if candles:
@@ -1808,7 +2128,10 @@ class APEXBot:
                     position, candles, self.strategy_id
                 )
                 if close_reason:
-                    self._close_and_sync(position, close_reason)
+                    if close_reason.startswith("PARTIAL_"):
+                        self._handle_partial_close(position, close_reason)
+                    else:
+                        self._close_and_sync(position, close_reason)
 
         positions = self.client.get_positions()
 
@@ -1835,6 +2158,16 @@ class APEXBot:
         #  SIGNAL SCANNING & NEW ENTRIES
         # ═══════════════════════════════════════════════════════════════
 
+        # Fetch funding rates (every 5 minutes)
+        now = time.time()
+        if now - self._last_funding_fetch > 300:
+            self._funding_rates = self.client.get_funding_rates()
+            self._last_funding_fetch = now
+            if self._funding_rates:
+                top_rates = sorted(self._funding_rates.items(), key=lambda x: abs(x[1]), reverse=True)[:3]
+                rate_str = ", ".join([f"{s}:{r*100:.4f}%" for s, r in top_rates])
+                logger.info(f"💸 Funding rates (top 3): {rate_str}")
+
         if self.auto_trading_enabled and self.risk_manager.check_risk_limits(positions, equity):
             for symbol in self.config.ASSETS:
                 candles = candles_map.get(symbol) or self.client.get_candles(symbol, self.config.TIMEFRAME)
@@ -1859,8 +2192,10 @@ class APEXBot:
                     candles_4h = self.client.get_candles(symbol, "4h", limit=200)
                     candles_4h_map[symbol] = candles_4h or []
 
+                funding = self._funding_rates.get(symbol, 0.0)
                 signal = self.signal_engine.generate_signal(
-                    symbol, candles, self.strategy_id, candles_4h=candles_4h
+                    symbol, candles, self.strategy_id, candles_4h=candles_4h,
+                    funding_rate=funding
                 )
                 current_regime = self.signal_engine.regime_detector.detect(candles)
 
@@ -1880,9 +2215,11 @@ class APEXBot:
                         position.original_stop_loss = position.stop_loss
                         position.highest_price = position.entry_price
                         position.lowest_price = position.entry_price
+                        position.original_size = position.size
                         trade_fired = True
                         self.sync.trade_signal(position, signal.confidence, self.config.PAPER_TRADE)
                         self.sync.save_position(position)
+                        self.notifications.notify_trade_open(position, equity)
                         positions = self.client.get_positions()
                         positions_with_pnl = self.client.get_positions_with_pnl()
         else:

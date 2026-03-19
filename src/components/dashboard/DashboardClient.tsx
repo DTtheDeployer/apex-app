@@ -339,14 +339,63 @@ export default function DashboardClient({
 
   const currentLeverage = LEVERAGE_LEVELS.find(l => l.id === leverage) || LEVERAGE_LEVELS[2]
 
-  const botOnline = heartbeat
-    ? (Date.now() - new Date(heartbeat.created_at).getTime()) < 2 * 3600 * 1000
-    : false
+  const heartbeatAge = heartbeat ? Date.now() - new Date(heartbeat.created_at).getTime() : Infinity
+  const botOnline = heartbeatAge < 3 * 60 * 1000       // Green: heartbeat within 3 min
+  const botStale = heartbeatAge < 10 * 60 * 1000        // Amber: within 10 min
+  const botStatus = botOnline ? 'live' : botStale ? 'stale' : 'offline'
+  const botStatusLabel = botOnline ? 'Live' : botStale ? 'Delayed' : 'Offline'
+  const botStatusColor = botOnline ? 'green' : botStale ? 'amber-400' : 'red'
 
-  const chartData = equityHistory.map(e => ({
-    time: new Date(e.snapshot_at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' }),
-    equity: e.equity,
-  }))
+  // Enhanced equity chart data with drawdown
+  const chartData = (() => {
+    let peak = 0
+    return equityHistory.map(e => {
+      const equity = e.equity
+      if (equity > peak) peak = equity
+      const drawdown = peak > 0 ? ((peak - equity) / peak) * 100 : 0
+      return {
+        time: new Date(e.snapshot_at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' }),
+        equity,
+        drawdown: -drawdown, // Negative for visual (draws below zero line)
+      }
+    })
+  })()
+
+  // Performance ratios
+  const perfRatios = (() => {
+    if (equityHistory.length < 2) return null
+    const equities = equityHistory.map(e => e.equity)
+    const returns = equities.slice(1).map((e, i) => (e - equities[i]) / equities[i])
+    if (returns.length === 0) return null
+
+    const avgReturn = returns.reduce((a, b) => a + b, 0) / returns.length
+    const stdDev = Math.sqrt(returns.reduce((sum, r) => sum + (r - avgReturn) ** 2, 0) / returns.length)
+    const downReturns = returns.filter(r => r < 0)
+    const downDev = downReturns.length > 0
+      ? Math.sqrt(downReturns.reduce((sum, r) => sum + r ** 2, 0) / downReturns.length)
+      : 0
+
+    // Annualize (assuming daily snapshots)
+    const sharpe = stdDev > 0 ? (avgReturn / stdDev) * Math.sqrt(365) : 0
+    const sortino = downDev > 0 ? (avgReturn / downDev) * Math.sqrt(365) : 0
+
+    // Max drawdown
+    let peak = 0
+    let maxDD = 0
+    for (const eq of equities) {
+      if (eq > peak) peak = eq
+      const dd = (peak - eq) / peak
+      if (dd > maxDD) maxDD = dd
+    }
+    const calmar = maxDD > 0 ? (avgReturn * 365) / maxDD : 0
+
+    return {
+      sharpe: sharpe.toFixed(2),
+      sortino: sortino.toFixed(2),
+      calmar: calmar.toFixed(2),
+      maxDrawdown: (maxDD * 100).toFixed(1),
+    }
+  })()
 
   const todayPnl = heartbeat?.pnl_today ?? 0
   const totalPnl = stats?.total_pnl ?? 0
@@ -387,9 +436,9 @@ export default function DashboardClient({
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-bold">APEX</h1>
           <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium
-            ${botOnline ? 'bg-green/10 text-green' : 'bg-white/10 text-muted'}`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${botOnline ? 'bg-green animate-pulse' : 'bg-subtle'}`} />
-            {botOnline ? 'Live' : 'Offline'}
+            ${botOnline ? 'bg-green/10 text-green' : botStale ? 'bg-amber-500/10 text-amber-400' : 'bg-red/10 text-red'}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${botOnline ? 'bg-green animate-pulse' : botStale ? 'bg-amber-400 animate-pulse' : 'bg-red'}`} />
+            {botStatusLabel}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -415,6 +464,19 @@ export default function DashboardClient({
         <div className="flex items-center gap-2 p-2 rounded-lg bg-red/10 border border-red/20 mb-4">
           <AlertTriangle className="w-4 h-4 text-red flex-shrink-0" />
           <p className="text-xs text-red">Auto-trading is paused. The bot will not open new positions.</p>
+        </div>
+      )}
+
+      {botStatus === 'offline' && (
+        <div className="flex items-center gap-2 p-2 rounded-lg bg-red/10 border border-red/20 mb-4">
+          <AlertTriangle className="w-4 h-4 text-red flex-shrink-0" />
+          <p className="text-xs text-red">Bot is offline — no heartbeat received in over 10 minutes. Check your bot process.</p>
+        </div>
+      )}
+      {botStatus === 'stale' && (
+        <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 mb-4">
+          <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+          <p className="text-xs text-amber-400">Bot heartbeat is delayed ({Math.round(heartbeatAge / 60000)}m ago). It may be restarting.</p>
         </div>
       )}
 
@@ -900,6 +962,32 @@ export default function DashboardClient({
                         </div>
                       </div>
 
+                      {/* Liquidation Risk Gauge */}
+                      {(t as any).liquidation_price > 0 && (() => {
+                        const liqPrice = (t as any).liquidation_price
+                        const liqDist = (t as any).liquidation_distance_pct || 0
+                        const liqRisk = liqDist < 5 ? 'DANGER' : liqDist < 15 ? 'WARNING' : 'SAFE'
+                        const liqColor = liqRisk === 'DANGER' ? 'red' : liqRisk === 'WARNING' ? 'amber-400' : 'green'
+                        return (
+                          <div className="mb-3 p-2 rounded-lg bg-black/30 border border-white/5">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[9px] text-white/40 uppercase">Liquidation Risk</span>
+                              <span className={`text-[9px] font-bold text-${liqColor}`}>{liqRisk}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-[10px] mb-1">
+                              <span className="text-muted">Liq: ${liqPrice.toLocaleString()}</span>
+                              <span className={`font-mono text-${liqColor}`}>{liqDist.toFixed(1)}% away</span>
+                            </div>
+                            <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all bg-${liqColor}`}
+                                style={{ width: `${Math.min(100, Math.max(5, 100 - liqDist * 2))}%` }}
+                              />
+                            </div>
+                          </div>
+                        )
+                      })()}
+
                       <button
                         onClick={async () => {
                           if (confirm(`Close ${t.symbol} position now?`)) {
@@ -929,19 +1017,42 @@ export default function DashboardClient({
         )}
       </div>
 
-      {/* Chart */}
+      {/* Enhanced Equity Chart with Drawdown */}
       {chartData.length > 1 && (
         <div className="apex-card p-3 mb-4">
-          <p className="text-[10px] text-muted uppercase tracking-wide mb-2">Portfolio</p>
-          <ResponsiveContainer width="100%" height={80}>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[10px] text-muted uppercase tracking-wide">Portfolio</p>
+            {perfRatios && (
+              <div className="flex gap-3">
+                <div className="text-right">
+                  <span className="text-[8px] text-muted block">Sharpe</span>
+                  <span className={`text-[10px] font-mono font-bold ${parseFloat(perfRatios.sharpe) > 1 ? 'text-green' : parseFloat(perfRatios.sharpe) > 0 ? 'text-amber-400' : 'text-red'}`}>{perfRatios.sharpe}</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[8px] text-muted block">Sortino</span>
+                  <span className={`text-[10px] font-mono font-bold ${parseFloat(perfRatios.sortino) > 1.5 ? 'text-green' : parseFloat(perfRatios.sortino) > 0 ? 'text-amber-400' : 'text-red'}`}>{perfRatios.sortino}</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[8px] text-muted block">Max DD</span>
+                  <span className="text-[10px] font-mono font-bold text-red">-{perfRatios.maxDrawdown}%</span>
+                </div>
+              </div>
+            )}
+          </div>
+          <ResponsiveContainer width="100%" height={100}>
             <AreaChart data={chartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="eq" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#00d084" stopOpacity={0.2} />
                   <stop offset="100%" stopColor="#00d084" stopOpacity={0} />
                 </linearGradient>
+                <linearGradient id="dd" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#ef4444" stopOpacity={0} />
+                  <stop offset="100%" stopColor="#ef4444" stopOpacity={0.15} />
+                </linearGradient>
               </defs>
-              <Area type="monotone" dataKey="equity" stroke="#00d084" strokeWidth={1.5} fill="url(#eq)" dot={false} />
+              <Area type="monotone" dataKey="equity" stroke="#00d084" strokeWidth={1.5} fill="url(#eq)" dot={false} yAxisId="equity" />
+              <Area type="monotone" dataKey="drawdown" stroke="#ef4444" strokeWidth={1} strokeDasharray="3 3" fill="url(#dd)" dot={false} yAxisId="drawdown" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
