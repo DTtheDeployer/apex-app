@@ -282,10 +282,16 @@ button, .no-select {
 }
 
 .stat-card-value {
-  font-size: 28px;
+  font-size: 20px;
   font-weight: 700;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
+}
+
+@media (min-width: 640px) {
+  .stat-card-value {
+    font-size: 28px;
+  }
 }
 
 /* Signal card gradients */

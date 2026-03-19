@@ -385,28 +385,28 @@ export default function DashboardClient({
 
       {/* MARKET STATUS BANNER */}
       <div className={`rounded-xl border p-3 mb-4 ${regimeConfig.bg}`}>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg ${regimeConfig.bg}`}>
+            <div className={`p-2 rounded-lg ${regimeConfig.bg} flex-shrink-0`}>
               <regimeConfig.icon className={`w-5 h-5 ${regimeConfig.color}`} />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <span className={`text-sm font-bold ${regimeConfig.color}`}>{regimeConfig.label}</span>
-                <span className="text-[10px] text-muted">• Live Market Status</span>
+                <span className="hidden sm:inline text-[10px] text-muted">• Live Market Status</span>
               </div>
               <p className="text-xs text-white/60">{regimeConfig.description}</p>
             </div>
           </div>
-          <div className="text-right">
+          <div className="sm:text-right">
             <p className="text-[10px] text-muted mb-1">Recommended:</p>
-            <div className="flex flex-wrap gap-1 justify-end">
+            <div className="flex flex-wrap gap-1 sm:justify-end">
               {recommendedStrategies.slice(0, 3).map(stratId => {
                 const strat = STRATEGIES.find(s => s.id === stratId)
                 if (!strat) return null
                 return (
-                  <span 
-                    key={stratId} 
+                  <span
+                    key={stratId}
                     className={`text-[10px] px-1.5 py-0.5 rounded border ${strat.bg} ${strat.color}`}
                   >
                     {strat.name}
@@ -442,14 +442,14 @@ export default function DashboardClient({
         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full animate-shimmer" />
         
         <div className="relative p-4">
-          <div className="flex items-start justify-between mb-3">
-            <div className="flex items-center gap-3">
-              <div className={`p-2.5 rounded-xl ${currentStrat.bg} border`}>
-                <currentStrat.icon className={`w-6 h-6 ${currentStrat.color}`} />
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className={`p-2 sm:p-2.5 rounded-xl ${currentStrat.bg} border flex-shrink-0`}>
+                <currentStrat.icon className={`w-5 h-5 sm:w-6 sm:h-6 ${currentStrat.color}`} />
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className={`text-lg font-bold ${currentStrat.color}`}>{currentStrat.name}</h2>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className={`text-base sm:text-lg font-bold ${currentStrat.color}`}>{currentStrat.name}</h2>
                   <span className="px-2 py-0.5 rounded-full bg-white/10 text-[10px] font-medium text-white/70">ACTIVE</span>
                   {isCurrentStrategyRecommended && currentRegime !== 'UNKNOWN' && (
                     <span className="px-2 py-0.5 rounded-full bg-green/20 text-[10px] font-medium text-green flex items-center gap-1">
@@ -458,19 +458,19 @@ export default function DashboardClient({
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-white/60 mt-0.5">{currentStrat.desc}</p>
+                <p className="text-xs text-white/60 mt-0.5 truncate">{currentStrat.desc}</p>
               </div>
             </div>
-            <button 
+            <button
               onClick={() => setShowStrategyPicker(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 border border-white/10 text-xs font-medium transition-all"
+              className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 border border-white/10 text-xs font-medium transition-all flex-shrink-0"
             >
               Change
               <ArrowRight className="w-3 h-3" />
             </button>
           </div>
 
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
             <span className="px-2 py-1 rounded-lg bg-white/10 text-[11px] font-medium">{currentStrat.style}</span>
             <span className="px-2 py-1 rounded-lg bg-white/10 text-[11px] font-medium flex items-center gap-1">
               <Clock className="w-3 h-3" />
@@ -479,7 +479,7 @@ export default function DashboardClient({
             <span className="px-2 py-1 rounded-lg bg-white/10 text-[11px] font-medium">{currentRisk.pct} Risk</span>
           </div>
 
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
             <div className="bg-black/20 rounded-lg p-2.5 text-center">
               <p className="text-[10px] text-white/50 uppercase mb-1">Trades</p>
               <p className="text-lg font-bold">{currentStratStats.trades}</p>
@@ -604,20 +604,20 @@ export default function DashboardClient({
       )}
 
       {/* Stats Row */}
-      <div className="grid grid-cols-4 gap-3 mb-4">
-        <div className="stat-card p-4 text-center">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4">
+        <div className="stat-card p-3 sm:p-4 text-center">
           <p className="stat-card-label">Equity</p>
           <p className="stat-card-value">{fmt(heartbeat?.equity)}</p>
         </div>
-        <div className="stat-card p-4 text-center">
+        <div className="stat-card p-3 sm:p-4 text-center">
           <p className="stat-card-label">Today</p>
           <div className="mt-1"><PnlBadge value={todayPnl} size="md" /></div>
         </div>
-        <div className="stat-card p-4 text-center">
+        <div className="stat-card p-3 sm:p-4 text-center">
           <p className="stat-card-label">Total</p>
           <div className="mt-1"><PnlBadge value={totalPnl} size="md" /></div>
         </div>
-        <div className="stat-card p-4 text-center">
+        <div className="stat-card p-3 sm:p-4 text-center">
           <p className="stat-card-label">Win%</p>
           <p className={`stat-card-value ${totalTrades > 0 && winRate >= 50 ? 'text-green' : ''}`}>{totalTrades > 0 ? `${winRate.toFixed(0)}%` : '—'}</p>
         </div>
@@ -635,7 +635,7 @@ export default function DashboardClient({
         </div>
         
         {signalRadar.length > 0 ? (
-          <div className="grid grid-cols-5 gap-2">
+          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
             {signalRadar.map((scan) => (
               <div key={scan.symbol} className={`relative rounded-xl border p-3 text-center transition-all duration-300 hover:scale-[1.02] cursor-default ${getSignalBgColor(scan.strength)}`}>
                 {scan.strength >= 70 && (
