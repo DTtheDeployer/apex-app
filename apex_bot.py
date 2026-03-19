@@ -737,18 +737,19 @@ class RiskManager:
     def calculate_position_size(self, equity: float, entry: float, stop_loss: float, confidence: float, risk_per_trade: float):
         if not equity or equity <= 0 or np.isnan(equity):
             return 0, 1
-    
+
         risk_amount = equity * risk_per_trade * confidence
         price_risk = abs(entry - stop_loss) / entry
-    
+
         if price_risk == 0:
             return 0, 1
-    
-    
+
+        # Use the user's selected leverage directly
+        leverage = self.max_leverage
+        # Position size = risk-based size, capped by leveraged equity
         position_value = risk_amount / price_risk
-        leverage = min(self.max_leverage, max(1, int(position_value / equity)))
         size = min(position_value, equity * leverage * 0.9)
-    
+
         return size, leverage
 
 # ══════════════════════════════════════════════════════════════════════════════
