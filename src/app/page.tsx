@@ -57,7 +57,7 @@ export default function LandingPage() {
               Log in
             </Link>
             <Link
-              href="/dashboard"
+              href="/signup"
               className="text-sm font-medium px-5 py-2 rounded-md transition-all hover:brightness-110"
               style={{ background: 'linear-gradient(135deg, #00A896, #00D4AA)', color: '#0A1628' }}
             >
@@ -95,7 +95,7 @@ export default function LandingPage() {
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12">
             <Link
-              href="/dashboard"
+              href="/signup"
               className="w-full sm:w-auto font-semibold px-8 py-3.5 rounded-lg transition-all hover:brightness-110 text-base"
               style={{ background: 'linear-gradient(135deg, #00A896, #00BFA6)', color: '#fff' }}
             >
@@ -315,12 +315,12 @@ export default function LandingPage() {
 
           <div className="grid md:grid-cols-3 gap-4">
             {[
-              { title: 'Strategy Modes', desc: 'Conservative, Balanced, or Aggressive. Each adjusts RSI thresholds, entry criteria, and minimum confidence levels.' },
-              { title: 'Risk Control', desc: 'Set 2%, 4%, or 6% risk per trade. Position sizing automatically adjusts to your equity and stop distance.' },
-              { title: 'Signal Radar', desc: 'See how close each asset is to triggering a trade. Cold, warming, and hot signals at a glance.' },
-              { title: 'Trade Explainer', desc: 'Every entry and exit comes with a plain-English explanation of the indicators and reasoning.' },
-              { title: 'SL/TP Tracker', desc: 'Visual progress bar shows exactly how close each position is to stop loss or take profit in real time.' },
-              { title: 'Manual Override', desc: 'Close any position instantly from the dashboard. You are always in control.' },
+              { title: '6 AI Strategies', desc: 'Momentum, Dip Hunter, Breakout, Scalp, Swing, and the Adaptive hybrid. Each auto-adapts to market regime with multi-timeframe confirmation.' },
+              { title: 'Active Position Manager', desc: 'Regime-reactive exits, trailing stops, time stops, partial scale-outs, and correlation guard. Not a static bot — it actively manages every trade.' },
+              { title: 'Dynamic Risk Engine', desc: 'Half-Kelly position sizing, consecutive loss reducer, funding rate awareness, and daily circuit breaker. Your risk is always controlled.' },
+              { title: 'Trade Explainer', desc: 'Every entry and exit comes with plain-English reasoning, target prices, R:R ratio, regime context, and expected hold time.' },
+              { title: 'Signal Radar', desc: 'See how close each asset is to triggering. Cold, warm, and hot signals with real-time strength percentage and direction.' },
+              { title: 'Live Notifications', desc: 'Discord and Telegram alerts on every trade open, close, regime flip, and circuit breaker. Never miss a move.' },
             ].map((f) => (
               <div
                 key={f.title}
@@ -345,19 +345,21 @@ export default function LandingPage() {
           <div className="text-center mb-16">
             <SectionLabel>Intelligence</SectionLabel>
             <h2 className="text-4xl md:text-5xl font-bold mb-4 tracking-tight">
-              Four strategies. One consensus.
+              Six strategies. One intelligent system.
             </h2>
             <p className="text-lg text-white/45 max-w-2xl mx-auto">
-              APEX detects the market regime and adapts its approach. Trending, ranging, volatile — each gets a different strategy mix.
+              APEX detects the market regime and adapts its approach. Each strategy is gated by 4h multi-timeframe confirmation, volume analysis, and funding rate awareness.
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-5">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
             {[
-              { color: 'bg-teal', name: 'Momentum', regime: 'TRENDING', winRate: '71%', avgReturn: '+2.4%', desc: 'Catches strong directional moves when RSI shows momentum without being overbought. MACD confirmation required.' },
-              { color: 'bg-blue-500', name: 'Trend Pullback', regime: 'TRENDING', winRate: '65%', avgReturn: '+1.8%', desc: 'Buys dips in uptrends, sells rallies in downtrends. Waits for RSI to cool before entering with the trend.' },
-              { color: 'bg-purple-500', name: 'Mean Reversion', regime: 'RANGING', winRate: '63%', avgReturn: '+1.2%', desc: 'Fades extremes when market is choppy. Buys oversold at lower Bollinger Band, sells overbought at upper.' },
-              { color: 'bg-yellow-500', name: 'Breakout', regime: 'VOLATILE', winRate: '58%', avgReturn: '+3.1%', desc: 'Catches 20-period high/low breaks with RSI confirmation. Rides momentum after range expansion.' },
+              { color: 'bg-purple-500', name: 'APEX Adaptive', regime: 'ALL', winRate: '—', avgReturn: '—', desc: 'The flagship hybrid. Automatically switches between trend, mean reversion, and breakout based on live regime detection.' },
+              { color: 'bg-teal', name: 'Momentum Rider', regime: 'TRENDING', winRate: '71%', avgReturn: '+2.4%', desc: 'Rides strong trends with RSI + MACD confirmation. Wider stops, lets winners run with trailing exits.' },
+              { color: 'bg-blue-500', name: 'Dip Hunter', regime: 'RANGING', winRate: '63%', avgReturn: '+1.2%', desc: 'Buys deep oversold, sells deep overbought at Bollinger extremes. Precision entries in ranging markets.' },
+              { color: 'bg-yellow-500', name: 'Breakout Blitz', regime: 'VOLATILE', winRate: '58%', avgReturn: '+3.1%', desc: 'Catches confirmed range breakouts with volume confirmation. Hard-rejects low-volume fakes.' },
+              { color: 'bg-red-500', name: 'Scalp Sniper', regime: 'RANGING', winRate: '62%', avgReturn: '+0.8%', desc: 'Quick precision trades at extreme levels. Tight stops, fast exits. Only fires in confirmed ranging markets.' },
+              { color: 'bg-amber-500', name: 'Swing King', regime: 'TRENDING', winRate: '65%', avgReturn: '+4.2%', desc: 'Patient multi-day entries with wide stops. Maximum conviction only. Holds through noise for big moves.' },
             ].map((s) => (
               <div
                 key={s.name}
@@ -464,14 +466,14 @@ export default function LandingPage() {
                 <span className="text-white/35 ml-1">/forever</span>
               </div>
               <ul className="space-y-3 mb-8">
-                {['Full paper trading', 'All strategies', 'BTC + ETH', 'Live dashboard', 'Trade explainer'].map((f) => (
+                {['Full paper trading', 'All 6 strategies', 'BTC + ETH', 'Live dashboard', 'Trade explainer', 'Signal radar'].map((f) => (
                   <li key={f} className="flex items-center gap-2.5 text-sm text-white/55">
                     <span className="text-teal">&#10003;</span> {f}
                   </li>
                 ))}
               </ul>
               <Link
-                href="/dashboard"
+                href="/signup"
                 className="block text-center py-3 rounded-lg font-medium bg-white/[0.04] text-white/70 hover:bg-white/[0.06] border border-white/[0.06] transition-colors"
               >
                 Start free
@@ -490,14 +492,14 @@ export default function LandingPage() {
                 <span className="text-white/35 ml-1">/mo</span>
               </div>
               <ul className="space-y-3 mb-8">
-                {['Live order execution', 'All strategies', 'BTC, ETH + 5 more pairs', 'Signal radar', 'Manual override', 'Email alerts'].map((f) => (
+                {['Live order execution', 'All 6 strategies', 'BTC, ETH + 5 more pairs', 'Active Position Manager', 'Dynamic risk sizing', 'Discord/Telegram alerts'].map((f) => (
                   <li key={f} className="flex items-center gap-2.5 text-sm text-white/60">
                     <span className="text-teal">&#10003;</span> {f}
                   </li>
                 ))}
               </ul>
               <Link
-                href="/dashboard"
+                href="/signup"
                 className="block text-center py-3 rounded-lg font-semibold transition-all hover:brightness-110"
                 style={{ background: 'linear-gradient(135deg, #00A896, #00BFA6)', color: '#fff' }}
               >
@@ -517,14 +519,14 @@ export default function LandingPage() {
                 <span className="text-white/35 ml-1">/mo</span>
               </div>
               <ul className="space-y-3 mb-8">
-                {['Everything in Pro', 'All 100+ HL pairs', 'Custom strategy weights', 'Telegram alerts', 'Priority support', 'Early features'].map((f) => (
+                {['Everything in Pro', 'All 100+ HL pairs', 'Custom strategy weights', 'Funding rate intelligence', 'Priority support', 'Early features'].map((f) => (
                   <li key={f} className="flex items-center gap-2.5 text-sm text-white/55">
                     <span className="text-teal">&#10003;</span> {f}
                   </li>
                 ))}
               </ul>
               <Link
-                href="/dashboard"
+                href="/signup"
                 className="block text-center py-3 rounded-lg font-medium bg-white/[0.04] text-white/70 hover:bg-white/[0.06] border border-white/[0.06] transition-colors"
               >
                 Go Elite
@@ -562,7 +564,7 @@ export default function LandingPage() {
               Paper trade free. See exactly why every trade happens. Upgrade to live trading when you&apos;re confident.
             </p>
             <Link
-              href="/dashboard"
+              href="/signup"
               className="inline-block font-semibold px-10 py-3.5 rounded-lg transition-all hover:brightness-110 text-base"
               style={{ background: 'linear-gradient(135deg, #00A896, #00BFA6)', color: '#fff' }}
             >

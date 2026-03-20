@@ -20,20 +20,37 @@ const inputStyle: CSSProperties = {
 const inputFocusBoxShadow = '0 0 0 2px rgba(0, 168, 150, 0.25)'
 const inputFocusBorder = 'rgba(0, 168, 150, 0.5)'
 
-export default function LoginPage() {
+export default function SignupPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [emailFocused, setEmailFocused] = useState(false)
-  const [passwordFocused, setPasswordFocused] = useState(false)
+  const [focusedField, setFocusedField] = useState<string | null>(null)
 
-  async function handleLogin() {
-    setLoading(true)
+  async function handleSignup() {
     setError('')
 
+    if (!email || !password) {
+      setError('Email and password are required')
+      return
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters')
+      return
+    }
+
+    if (password !== confirmPassword) {
+      setError('Passwords do not match')
+      return
+    }
+
+    setLoading(true)
+
     try {
-      const res = await fetch('/auth/login', {
+      const res = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -42,17 +59,90 @@ export default function LoginPage() {
       const result = await res.json()
 
       if (!res.ok) {
-        setError(result.error || 'Login failed')
+        setError(result.error || 'Signup failed')
         setLoading(false)
         return
       }
-    } catch {
-      setError('Network error')
-      setLoading(false)
-      return
-    }
 
-    window.location.assign('/dashboard')
+      setSuccess(true)
+    } catch {
+      setError('Network error. Please try again.')
+      setLoading(false)
+    }
+  }
+
+  if (success) {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#0A1628',
+          padding: '24px',
+        }}
+      >
+        <div style={{ maxWidth: '440px', textAlign: 'center' }}>
+          <div
+            style={{
+              width: '64px',
+              height: '64px',
+              borderRadius: '16px',
+              background: 'linear-gradient(135deg, #00A896, #00D4AA)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '28px',
+              fontWeight: 800,
+              color: '#0A1628',
+              margin: '0 auto 24px',
+            }}
+          >
+            A
+          </div>
+          <h2
+            style={{
+              fontSize: '28px',
+              fontWeight: 700,
+              color: '#E8EEF4',
+              margin: '0 0 12px 0',
+              letterSpacing: '-0.02em',
+            }}
+          >
+            Check your email
+          </h2>
+          <p
+            style={{
+              fontSize: '16px',
+              color: 'rgba(232, 238, 244, 0.5)',
+              lineHeight: 1.6,
+              margin: '0 0 32px 0',
+            }}
+          >
+            We sent a confirmation link to <strong style={{ color: '#00A896' }}>{email}</strong>.
+            Click the link to activate your account and start trading.
+          </p>
+          <Link
+            href="/login"
+            style={{
+              display: 'inline-block',
+              padding: '14px 32px',
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: '10px',
+              color: '#E8EEF4',
+              fontSize: '15px',
+              fontWeight: 500,
+              textDecoration: 'none',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            Go to Login
+          </Link>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -81,7 +171,7 @@ export default function LoginPage() {
           overflow: 'hidden',
         }}
       >
-        {/* Accent glow */}
+        {/* Accent glows */}
         <div
           style={{
             position: 'absolute',
@@ -156,11 +246,9 @@ export default function LoginPage() {
               margin: '0 0 24px 0',
             }}
           >
-            Real-time trading
+            Start trading with
             <br />
-            intelligence, powered
-            <br />
-            by{' '}
+            full{' '}
             <span
               style={{
                 background: 'linear-gradient(135deg, #00A896, #00D4AA)',
@@ -168,7 +256,7 @@ export default function LoginPage() {
                 WebkitTextFillColor: 'transparent',
               }}
             >
-              automation
+              transparency
             </span>
             .
           </h1>
@@ -178,17 +266,30 @@ export default function LoginPage() {
               fontSize: '17px',
               lineHeight: 1.6,
               color: 'rgba(232, 238, 244, 0.5)',
-              margin: 0,
+              margin: '0 0 32px 0',
               maxWidth: '400px',
             }}
           >
-            Monitor positions, execute strategies, and track performance
-            — all from a single dashboard.
+            Paper trade free, then go live. Every trade comes with a plain-English explanation.
           </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {[
+              'Paper trade with $10k virtual balance',
+              '6 AI strategies that adapt to market regimes',
+              'Non-custodial — your keys, your funds',
+              'No credit card required',
+            ].map((item) => (
+              <div key={item} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span style={{ color: '#00A896', fontSize: '14px' }}>&#10003;</span>
+                <span style={{ color: 'rgba(232, 238, 244, 0.55)', fontSize: '14px' }}>{item}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Right login panel */}
+      {/* Right signup panel */}
       <div
         className="login-form-panel"
         style={{
@@ -282,16 +383,16 @@ export default function LoginPage() {
               letterSpacing: '-0.02em',
             }}
           >
-            Welcome back
+            Create your account
           </h2>
           <p
             style={{
               fontSize: '15px',
               color: 'rgba(232, 238, 244, 0.45)',
-              margin: '0 0 36px 0',
+              margin: '0 0 32px 0',
             }}
           >
-            Sign in to your APEX account
+            Start paper trading in under a minute
           </p>
 
           {error && (
@@ -327,15 +428,40 @@ export default function LoginPage() {
               placeholder="you@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              onFocus={() => setEmailFocused(true)}
-              onBlur={() => setEmailFocused(false)}
+              onFocus={() => setFocusedField('email')}
+              onBlur={() => setFocusedField(null)}
               style={{
                 ...inputStyle,
-                ...(emailFocused
-                  ? {
-                      borderColor: inputFocusBorder,
-                      boxShadow: inputFocusBoxShadow,
-                    }
+                ...(focusedField === 'email'
+                  ? { borderColor: inputFocusBorder, boxShadow: inputFocusBoxShadow }
+                  : {}),
+              }}
+            />
+          </div>
+
+          <div style={{ marginBottom: '16px' }}>
+            <label
+              style={{
+                display: 'block',
+                fontSize: '13px',
+                fontWeight: 500,
+                color: 'rgba(232, 238, 244, 0.6)',
+                marginBottom: '8px',
+              }}
+            >
+              Password
+            </label>
+            <input
+              type="password"
+              placeholder="Min 6 characters"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onFocus={() => setFocusedField('password')}
+              onBlur={() => setFocusedField(null)}
+              style={{
+                ...inputStyle,
+                ...(focusedField === 'password'
+                  ? { borderColor: inputFocusBorder, boxShadow: inputFocusBoxShadow }
                   : {}),
               }}
             />
@@ -351,25 +477,22 @@ export default function LoginPage() {
                 marginBottom: '8px',
               }}
             >
-              Password
+              Confirm password
             </label>
             <input
               type="password"
-              placeholder="Enter your password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Re-enter your password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') handleLogin()
+                if (e.key === 'Enter') handleSignup()
               }}
-              onFocus={() => setPasswordFocused(true)}
-              onBlur={() => setPasswordFocused(false)}
+              onFocus={() => setFocusedField('confirm')}
+              onBlur={() => setFocusedField(null)}
               style={{
                 ...inputStyle,
-                ...(passwordFocused
-                  ? {
-                      borderColor: inputFocusBorder,
-                      boxShadow: inputFocusBoxShadow,
-                    }
+                ...(focusedField === 'confirm'
+                  ? { borderColor: inputFocusBorder, boxShadow: inputFocusBoxShadow }
                   : {}),
               }}
             />
@@ -377,7 +500,7 @@ export default function LoginPage() {
 
           <button
             type="button"
-            onClick={handleLogin}
+            onClick={handleSignup}
             disabled={loading}
             style={{
               width: '100%',
@@ -399,7 +522,7 @@ export default function LoginPage() {
                 : '0 2px 12px rgba(0, 168, 150, 0.25)',
             }}
           >
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? 'Creating account...' : 'Create Account'}
           </button>
 
           <p
@@ -410,17 +533,30 @@ export default function LoginPage() {
               marginTop: '24px',
             }}
           >
-            Don&apos;t have an account?{' '}
+            Already have an account?{' '}
             <Link
-              href="/signup"
+              href="/login"
               style={{
                 color: '#00A896',
                 textDecoration: 'none',
                 fontWeight: 500,
               }}
             >
-              Sign up free
+              Sign in
             </Link>
+          </p>
+
+          <p
+            style={{
+              textAlign: 'center',
+              fontSize: '11px',
+              color: 'rgba(232, 238, 244, 0.2)',
+              marginTop: '24px',
+              lineHeight: 1.5,
+            }}
+          >
+            By signing up you agree to our Terms of Service and Privacy Policy.
+            Trading involves significant risk.
           </p>
         </div>
       </div>
