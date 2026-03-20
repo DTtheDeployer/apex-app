@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { stripe } from '@/lib/stripe'
 import { createAdminClient } from '@/lib/supabase/server'
 import type Stripe from 'stripe'
+import { sendPaymentFailedEmail } from '@/lib/email'
 
 // Map Stripe price IDs to plan names
 const PRICE_TO_PLAN: Record<string, string> = {
@@ -94,6 +95,13 @@ export async function POST(req: Request) {
       await supabase.from('profiles').update({
         subscription_status: 'past_due',
       }).eq('id', userId)
+
+      // Send payment failed email
+      const { data: failedProfile } = await supabase
+        .from('profiles').select('email').eq('id', userId).single()
+      if (failedProfile?.email) {
+        await sendPaymentFailedEmail(failedProfile.email)
+      }
 
       console.warn(`⚠️ Payment failed: user=${userId}`)
       break

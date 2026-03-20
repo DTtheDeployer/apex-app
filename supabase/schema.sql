@@ -19,6 +19,7 @@ create table public.profiles (
   subscription_status   text default 'inactive'
     check (subscription_status in ('active', 'inactive', 'past_due', 'canceled')),
   subscription_period_end timestamptz,
+  onboarding_completed boolean default false,
   created_at      timestamptz default now(),
   updated_at      timestamptz default now()
 );

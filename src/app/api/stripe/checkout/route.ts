@@ -2,9 +2,17 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { stripe, PLANS } from '@/lib/stripe'
+import { rateLimit, getRateLimitKey } from '@/lib/rate-limit'
 
 export async function POST(req: Request) {
   try {
+    // Rate limit: 10 checkout attempts per IP per 15 minutes
+    const key = getRateLimitKey(req, 'checkout')
+    const { limited } = rateLimit(key, { maxRequests: 10, windowMs: 15 * 60_000 })
+    if (limited) {
+      return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 })
+    }
+
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

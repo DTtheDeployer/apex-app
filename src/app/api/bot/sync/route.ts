@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { sendTradeAlertEmail } from '@/lib/email'
 
 // ADMIN USE ONLY — bot-facing route, authenticated via x-bot-secret header
 const supabase = createClient(
@@ -143,6 +144,15 @@ async function handleTradeSignal(userId: string, data: any) {
     return NextResponse.json({ error: 'Failed to save trade' }, { status: 500 })
   }
 
+  // Send trade alert email if user has email_alerts enabled
+  await sendTradeAlertIfEnabled(userId, {
+    action: 'opened',
+    symbol,
+    side,
+    price: entry_price,
+    strategy,
+  })
+
   return NextResponse.json({ ok: true })
 }
 
@@ -187,7 +197,51 @@ async function handleTradeClose(userId: string, data: any) {
     return NextResponse.json({ error: 'Failed to close trade' }, { status: 500 })
   }
 
+  // Send trade close alert email — look up original trade for symbol/side
+  const { data: closedTrade } = await supabase
+    .from('trades').select('symbol, side').eq('id', signal_id).single()
+
+  if (closedTrade) {
+    await sendTradeAlertIfEnabled(userId, {
+      action: 'closed',
+      symbol: closedTrade.symbol,
+      side: closedTrade.side,
+      price: exit_price,
+      pnl,
+      pnlPct: pnl_pct,
+      strategy,
+    })
+  }
+
   // user_stats is a database VIEW — no need to upsert, it auto-calculates from trades
 
   return NextResponse.json({ ok: true })
+}
+
+async function sendTradeAlertIfEnabled(
+  userId: string,
+  trade: Parameters<typeof sendTradeAlertEmail>[1]
+) {
+  try {
+    // Check if user has email_alerts enabled
+    const { data: config } = await supabase
+      .from('bot_configs')
+      .select('email_alerts')
+      .eq('user_id', userId)
+      .single()
+
+    if (!config?.email_alerts) return
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('email')
+      .eq('id', userId)
+      .single()
+
+    if (profile?.email) {
+      await sendTradeAlertEmail(profile.email, trade)
+    }
+  } catch (error) {
+    console.error('Trade alert email error:', error)
+  }
 }

@@ -9,6 +9,7 @@ export interface Profile {
   stripe_subscription_id: string | null
   subscription_status: 'active' | 'inactive' | 'past_due' | 'canceled'
   subscription_period_end: string | null
+  onboarding_completed: boolean
   created_at: string
   updated_at: string
 }

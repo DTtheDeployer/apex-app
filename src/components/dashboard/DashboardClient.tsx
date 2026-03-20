@@ -2,6 +2,7 @@
 
 import AIChatWidget from '@/components/AIChatWidget'
 import PnlBadge from '@/components/ui/PnlBadge'
+import OnboardingModal from '@/components/dashboard/OnboardingModal'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { AreaChart, Area, YAxis, ResponsiveContainer } from 'recharts'
@@ -247,6 +248,7 @@ export default function DashboardClient({
 
   const [leverage, setLeverage] = useState((config as any)?.leverage || 3)
   const [showLeveragePicker, setShowLeveragePicker] = useState(false)
+  const [showOnboarding, setShowOnboarding] = useState(!profile?.onboarding_completed)
 
   const [autoTrading, setAutoTrading] = useState(botEnabled)
   const [togglingAutoTrading, setTogglingAutoTrading] = useState(false)
@@ -429,8 +431,20 @@ export default function DashboardClient({
   const currentRisk = RISK_LEVELS.find(r => r.id === risk) || RISK_LEVELS[1]
   const currentStratStats = strategyStats[strategy] || strategyStats[strategy?.toUpperCase()] || { trades: 0, wins: 0, losses: 0, pnl: 0 }
 
+  async function completeOnboarding() {
+    setShowOnboarding(false)
+    try {
+      const { createClient } = await import('@/lib/supabase/client')
+      const supabase = createClient()
+      await supabase.from('profiles').update({ onboarding_completed: true }).eq('id', userId)
+    } catch (e) {
+      console.error('Failed to save onboarding state:', e)
+    }
+  }
+
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto">
+      {showOnboarding && <OnboardingModal onComplete={completeOnboarding} />}
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
