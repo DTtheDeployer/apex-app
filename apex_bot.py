@@ -31,7 +31,7 @@ class Config:
     HL_WALLET_ADDRESS: str = os.getenv("HL_WALLET_ADDRESS", "") # Main wallet address
     
     APEX_APP_URL: str = os.getenv("APEX_APP_URL", "https://app.apexhl.trade")
-    APEX_USER_ID: str = os.getenv("APEX_USER_ID", "a040d19d-f40e-44f7-9b90-dead9d9bcfeb")
+    APEX_USER_ID: str = os.getenv("APEX_USER_ID", "")
     BOT_API_SECRET: str = os.getenv("BOT_API_SECRET", "")
     
     ASSETS: List[str] = field(default_factory=lambda: ["BTC", "ETH", "SOL", "ARB", "DOGE"])
@@ -1156,11 +1156,11 @@ class ActivePositionManager:
                            f"regime now TRENDING_DOWN. Closing.")
                 return "REGIME_FLIP"
             elif current_regime == Regime.VOLATILE and entry_regime in ["TRENDING_UP", "RANGING"]:
-                # Regime shifted to volatile — tighten stop to breakeven + 0.5 ATR
-                breakeven_stop = position.entry_price + (0.5 * atr)
+                # Regime shifted to volatile — tighten stop to breakeven - 0.5 ATR (below entry for LONG)
+                breakeven_stop = position.entry_price - (0.5 * atr)
                 if current_price > breakeven_stop and position.stop_loss < breakeven_stop:
                     position.stop_loss = breakeven_stop
-                    logger.info(f"⚡ REGIME TIGHTEN: {position.symbol} LONG stop → breakeven+0.5ATR "
+                    logger.info(f"⚡ REGIME TIGHTEN: {position.symbol} LONG stop → breakeven-0.5ATR "
                                f"(${breakeven_stop:.2f}) due to VOLATILE regime")
         else:  # SHORT
             if current_regime == Regime.TRENDING_UP:
@@ -1357,6 +1357,7 @@ class HyperliquidClient:
         self.session = requests.Session()
         self._price_cache = {}
         self._candle_cache = {}
+        self._candle_cache_time: Dict[str, float] = {}
         self.wallet_address = wallet_address
 
         # Live trading setup
@@ -1399,9 +1400,16 @@ class HyperliquidClient:
                 candles = [{"open": float(c["o"]), "high": float(c["h"]), "low": float(c["l"]),
                             "close": float(c["c"]), "volume": float(c["v"]), "time": c["t"]} for c in data]
                 self._candle_cache[symbol] = candles
+                self._candle_cache_time[symbol] = time.time()
                 return candles
         except Exception as e:
             logger.error(f"Candles error {symbol}: {e}")
+        # Stale cache guard: reject cached candles older than 5 minutes
+        if symbol in self._candle_cache:
+            cache_age = time.time() - self._candle_cache_time.get(symbol, 0)
+            if cache_age > 300:
+                logger.warning(f"Stale candle cache for {symbol} ({cache_age:.0f}s old) — returning empty")
+                return []
         return self._candle_cache.get(symbol, [])
 
     def get_all_prices(self) -> Dict[str, float]:
@@ -1409,8 +1417,8 @@ class HyperliquidClient:
             response = self.session.post(self.INFO_URL, json={"type": "allMids"}, timeout=10)
             if response.status_code == 200:
                 self._price_cache = {k: float(v) for k, v in response.json().items()}
-        except:
-            pass
+        except Exception as e:
+            logger.error(f"Failed to fetch all prices: {e}")
         return self._price_cache
 
     def get_price(self, symbol: str) -> Optional[float]:
@@ -1730,7 +1738,8 @@ class BotSync:
             r = self.session.post(f"{self.app_url}/api/bot/sync",
                                   json={**payload, "user_id": self.user_id}, timeout=5)
             return r.status_code == 200
-        except:
+        except Exception as e:
+            logger.error(f"Failed to post sync data: {e}")
             return False
 
     def fetch_settings(self) -> Dict:
@@ -1738,8 +1747,8 @@ class BotSync:
             r = self.session.get(f"{self.app_url}/api/bot/settings?user_id={self.user_id}", timeout=5)
             if r.status_code == 200:
                 return r.json()
-        except:
-            pass
+        except Exception as e:
+            logger.error(f"Failed to fetch settings: {e}")
         return {}
 
     def fetch_commands(self) -> List[Dict]:
@@ -1747,8 +1756,8 @@ class BotSync:
             r = self.session.get(f"{self.app_url}/api/bot/close?user_id={self.user_id}", timeout=5)
             if r.status_code == 200:
                 return r.json().get("commands", [])
-        except:
-            pass
+        except Exception as e:
+            logger.error(f"Failed to fetch commands: {e}")
         return []
 
     def ack_command(self, command_id: str, status: str = "completed") -> bool:
@@ -1756,7 +1765,8 @@ class BotSync:
             r = self.session.patch(f"{self.app_url}/api/bot/close",
                                    json={"command_id": command_id, "status": status}, timeout=5)
             return r.status_code == 200
-        except:
+        except Exception as e:
+            logger.error(f"Failed to ack command {command_id}: {e}")
             return False
 
     def load_positions(self) -> List[Dict]:
@@ -1780,7 +1790,8 @@ class BotSync:
                 "strategy": position.strategy, "explanation": position.explanation,
             }, timeout=5)
             return r.status_code == 200
-        except:
+        except Exception as e:
+            logger.error(f"Failed to save position {position.symbol}: {e}")
             return False
 
     def delete_position(self, symbol: str) -> bool:
@@ -1788,7 +1799,8 @@ class BotSync:
             r = self.session.delete(f"{self.app_url}/api/bot/positions",
                                     json={"symbol": symbol}, timeout=5)
             return r.status_code == 200
-        except:
+        except Exception as e:
+            logger.error(f"Failed to delete position {symbol}: {e}")
             return False
 
     def heartbeat(self, equity: float, positions: List[Dict], regime: str, macro: str,
@@ -1932,12 +1944,31 @@ class NotificationDispatcher:
 class APEXBot:
     def __init__(self):
         self.config = CONFIG
-        self.client = HyperliquidClient(
-            paper=self.config.PAPER_TRADE,
-            paper_balance=self.config.PAPER_BALANCE,
-            private_key=self.config.HL_PRIVATE_KEY,
-            wallet_address=self.config.HL_WALLET_ADDRESS,
-        )
+
+        # Validate APEX_USER_ID is set and not the old dummy default
+        _DUMMY_UUID = "a040d19d-f40e-44f7-9b90-dead9d9bcfeb"
+        if not self.config.APEX_USER_ID or self.config.APEX_USER_ID == _DUMMY_UUID:
+            logger.error("APEX_USER_ID is not set or is still the default dummy UUID. "
+                         "Set the APEX_USER_ID environment variable to your real user ID.")
+            raise SystemExit(1)
+
+        try:
+            self.client = HyperliquidClient(
+                paper=self.config.PAPER_TRADE,
+                paper_balance=self.config.PAPER_BALANCE,
+                private_key=self.config.HL_PRIVATE_KEY,
+                wallet_address=self.config.HL_WALLET_ADDRESS,
+            )
+        except Exception as e:
+            if not self.config.PAPER_TRADE:
+                logger.error(f"Live trading initialization failed: {e} — falling back to paper trading mode")
+                self.config.PAPER_TRADE = True
+                self.client = HyperliquidClient(
+                    paper=True,
+                    paper_balance=self.config.PAPER_BALANCE,
+                )
+            else:
+                raise
         self.signal_engine = SignalEngine()
         self.risk_manager = RiskManager(
             max_positions=self.config.MAX_POSITIONS,
@@ -1952,6 +1983,7 @@ class APEXBot:
         self._last_settings_fetch = 0
         self._funding_rates: Dict[str, float] = {}
         self._last_funding_fetch = 0
+        self._daily_loss_breaker_tripped = False
 
     def fetch_settings(self):
         now = time.time()
@@ -2062,7 +2094,8 @@ class APEXBot:
                 logger.error(f"Partial close failed: {e}")
 
     def _close_and_sync(self, position: Position, reason: str):
-        """Close a position and sync to dashboard. Registers cooldown on loss."""
+        """Close a position and sync to dashboard. Registers cooldown on loss.
+        Also checks daily loss circuit breaker after close."""
         result = self.client.close_position(position, reason)
         if result:
             self.sync.trade_close(position, result, self.config.PAPER_TRADE)
@@ -2076,6 +2109,14 @@ class APEXBot:
             # Register cooldown if the trade was a loss
             if result.get("pnl", 0) < 0:
                 self.position_manager.register_cooldown(position.symbol, self.strategy_id)
+            # Check daily loss circuit breaker AFTER closing
+            if (self.risk_manager._daily_start_equity and
+                    equity < self.risk_manager._daily_start_equity * (1 - self.config.MAX_DAILY_LOSS)):
+                logger.warning(f"🛑 CIRCUIT BREAKER (post-close): Daily loss limit exceeded. "
+                               f"Equity ${equity:.0f} vs start ${self.risk_manager._daily_start_equity:.0f}. "
+                               f"Disabling auto-trading for this cycle.")
+                self._daily_loss_breaker_tripped = True
+                self.notifications.notify_circuit_breaker(equity, self.risk_manager._daily_start_equity)
 
     def cycle(self):
         equity = self.client.get_equity()
@@ -2084,6 +2125,8 @@ class APEXBot:
 
         self.risk_manager.reset_daily(equity)
         self.position_manager.tick_cooldowns()
+        # Reset the post-close circuit breaker flag at cycle start
+        self._daily_loss_breaker_tripped = False
 
         macro_context, _ = self.signal_engine.macro_calendar.get_context()
         current_regime = Regime.UNKNOWN
@@ -2168,7 +2211,8 @@ class APEXBot:
                 rate_str = ", ".join([f"{s}:{r*100:.4f}%" for s, r in top_rates])
                 logger.info(f"💸 Funding rates (top 3): {rate_str}")
 
-        if self.auto_trading_enabled and self.risk_manager.check_risk_limits(positions, equity):
+        if (self.auto_trading_enabled and not self._daily_loss_breaker_tripped
+                and self.risk_manager.check_risk_limits(positions, equity)):
             for symbol in self.config.ASSETS:
                 candles = candles_map.get(symbol) or self.client.get_candles(symbol, self.config.TIMEFRAME)
                 if not candles:

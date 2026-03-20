@@ -154,7 +154,7 @@ export default function SettingsClient() {
               </button>
             </div>
             <p className="text-xs text-subtle mt-1.5">
-              Leave blank to keep existing key. Stored AES-256-GCM encrypted server-side.
+              Leave blank to keep existing key. Encrypted with AES-256-GCM before storage.
             </p>
           </div>
           <div className="flex items-center gap-3">

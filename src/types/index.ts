@@ -7,9 +7,10 @@ export interface Profile {
   plan: 'starter' | 'pro' | 'elite'
   stripe_customer_id: string | null
   stripe_subscription_id: string | null
-  subscription_status: string
+  subscription_status: 'active' | 'inactive' | 'past_due' | 'canceled'
   subscription_period_end: string | null
   created_at: string
+  updated_at: string
 }
 
 export interface BotConfig {
@@ -23,6 +24,7 @@ export interface BotConfig {
   max_positions: number
   interval_minutes: number
   testnet: boolean
+  strategy: string
   weight_ma_cross: number | null
   weight_mean_reversion: number | null
   weight_momentum: number | null
@@ -33,6 +35,8 @@ export interface BotConfig {
   email_alerts: boolean
   bot_enabled: boolean
   last_seen: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface Trade {
@@ -56,12 +60,18 @@ export interface Trade {
   net_score: number
   regime: string | null
   macro_context: string | null
+  strategy: string | null
+  explanation: string | null
   paper: boolean
   opened_at: string
   closed_at: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface BotHeartbeat {
+  id: string
+  user_id: string
   equity: number
   open_positions: number
   regime: string
@@ -69,7 +79,11 @@ export interface BotHeartbeat {
   cycles_today: number
   trades_today: number
   pnl_today: number
+  unrealized_pnl: number
+  positions: unknown[]
+  signal_radar: unknown[]
   created_at: string
+  updated_at: string
 }
 
 export interface EquitySnapshot {
@@ -78,10 +92,38 @@ export interface EquitySnapshot {
 }
 
 export interface UserStats {
+  user_id: string
   total_trades: number
   wins: number
   losses: number
   win_rate_pct: number
   total_pnl: number
   pnl_today: number
+}
+
+export interface PaperPosition {
+  id: string
+  user_id: string
+  symbol: string
+  side: 'LONG' | 'SHORT'
+  entry_price: number
+  size: number
+  leverage: number
+  stop_loss: number | null
+  take_profit: number | null
+  entry_time: string
+  regime: string | null
+  macro: string | null
+  strategy: string | null
+  explanation: string | null
+}
+
+export interface BotCommand {
+  id: string
+  user_id: string
+  command: string
+  payload: Record<string, unknown>
+  status: 'pending' | 'completed' | 'failed'
+  created_at: string
+  processed_at: string | null
 }

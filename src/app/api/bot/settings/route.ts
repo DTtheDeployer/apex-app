@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id')
   const secret = request.headers.get('x-bot-secret')
 
-  if (secret !== process.env.BOT_API_SECRET) {
+  if (!secret || secret !== process.env.BOT_API_SECRET) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -21,17 +21,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Missing user_id' }, { status: 400 })
   }
 
-  // Fetch from bot_configs
   const { data: configData, error: configError } = await supabase
     .from('bot_configs')
-    .select('strategy_mode, risk_level, leverage, max_positions, assets, testnet')
-    .eq('user_id', userId)
-    .single()
-
-  // Fetch from bot_settings (enabled + strategy)
-  const { data: settingsData } = await supabase
-    .from('bot_settings')
-    .select('enabled, strategy')
+    .select('*')
     .eq('user_id', userId)
     .single()
 
@@ -39,21 +31,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: configError.message }, { status: 500 })
   }
 
-  const riskMap: Record<string, number> = {
-    low: 0.02,
-    medium: 0.04,
-    high: 0.06,
-  }
-
   return NextResponse.json({
-    strategy_mode: configData.strategy_mode || 'balanced',
-    strategy: settingsData?.strategy || 'apex_adaptive',
-    risk_per_trade: riskMap[configData.risk_level] || 0.04,
-    max_leverage: configData.leverage || 3,
-    max_positions: configData.max_positions || 3,
-    assets: configData.assets || ['BTC', 'ETH', 'SOL', 'ARB', 'DOGE'],
+    strategy: configData.strategy ?? 'apex_adaptive',
+    risk_per_trade: configData.max_position_pct ?? 0.04,
+    max_leverage: configData.leverage ?? 3,
+    max_positions: configData.max_positions ?? 3,
+    assets: configData.symbols ?? ['BTC', 'ETH', 'SOL', 'ARB', 'DOGE'],
     testnet: configData.testnet ?? true,
-    enabled: settingsData?.enabled ?? true,
+    enabled: configData.bot_enabled ?? true,
   })
 }
 
@@ -67,33 +52,21 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { strategy_mode, risk_level, strategy } = body
+    const { strategy } = body
     const user_id = user.id
 
-    // Update bot_configs
+    const updateData: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    }
+    if (strategy) updateData.strategy = strategy
+
     const { error: configError } = await supabase
       .from('bot_configs')
-      .upsert({
-        user_id,
-        strategy_mode,
-        risk_level,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id' })
+      .update(updateData)
+      .eq('user_id', user_id)
 
     if (configError) {
       return NextResponse.json({ error: configError.message }, { status: 500 })
-    }
-
-    // Update strategy in bot_settings if provided
-    if (strategy) {
-      const { error: settingsError } = await supabase
-        .from('bot_settings')
-        .update({ strategy })
-        .eq('user_id', user_id)
-
-      if (settingsError) {
-        console.error('Strategy update error:', settingsError)
-      }
     }
 
     return NextResponse.json({ success: true })
@@ -102,7 +75,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PATCH - Toggle auto-trading on/off or update strategy
+// PATCH - Toggle auto-trading on/off or update strategy/leverage
 export async function PATCH(request: NextRequest) {
   try {
     const sessionClient = createSessionClient()
@@ -115,43 +88,28 @@ export async function PATCH(request: NextRequest) {
     const { enabled, strategy, leverage } = body
     const user_id = user.id
 
-    // Update bot_settings (enabled, strategy)
-    const updateData: any = { user_id }
-    if (typeof enabled === 'boolean') {
-      updateData.enabled = enabled
-    }
-    if (strategy) {
-      updateData.strategy = strategy
+    const updateData: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
     }
 
-    if (Object.keys(updateData).length > 1) {
-      const { error } = await supabase
-        .from('bot_settings')
-        .upsert(updateData, { onConflict: 'user_id' })
+    if (typeof enabled === 'boolean') updateData.bot_enabled = enabled
+    if (strategy) updateData.strategy = strategy
+    if (typeof leverage === 'number' && leverage >= 1 && leverage <= 20) updateData.leverage = leverage
 
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 })
-      }
-    }
-
-    // Update bot_configs (leverage)
-    if (typeof leverage === 'number' && leverage >= 1 && leverage <= 20) {
-      const { error: leverageError } = await supabase
-        .from('bot_configs')
-        .update({ leverage, updated_at: new Date().toISOString() })
-        .eq('user_id', user_id)
-
-      if (leverageError) {
-        return NextResponse.json({ error: leverageError.message }, { status: 500 })
-      }
-    }
-
-    const hasUpdate = Object.keys(updateData).length > 1 || typeof leverage === 'number'
-    if (!hasUpdate) {
+    if (Object.keys(updateData).length <= 1) {
       return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
     }
 
-    return NextResponse.json({ success: true, ...updateData, ...(leverage ? { leverage } : {}) })
+    const { error } = await supabase
+      .from('bot_configs')
+      .update(updateData)
+      .eq('user_id', user_id)
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true })
   } catch (e) {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
   }

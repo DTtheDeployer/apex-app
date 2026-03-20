@@ -7,14 +7,11 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// Simple auth check - verify bot secret
-const BOT_API_SECRET = process.env.BOT_API_SECRET || ''
-
 export async function POST(request: NextRequest) {
   try {
-    // Check bot secret
+    // Check bot secret — always require it
     const botSecret = request.headers.get('x-bot-secret')
-    if (BOT_API_SECRET && botSecret !== BOT_API_SECRET) {
+    if (!botSecret || botSecret !== process.env.BOT_API_SECRET) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -70,7 +67,7 @@ async function handleHeartbeat(userId: string, data: any) {
       unrealized_pnl: unrealized_pnl ?? 0,
       positions: positions ?? [],
       signal_radar: signal_radar ?? [],
-      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     }, {
       onConflict: 'user_id'
     })
@@ -92,33 +89,6 @@ async function handleHeartbeat(userId: string, data: any) {
   if (snapshotError) {
     console.error('Snapshot error:', snapshotError)
   }
-
-  // Update live P&L for open trades if positions data is provided
-  if (positions && Array.isArray(positions)) {
-    for (const pos of positions) {
-      await supabase
-        .from('trades')
-        .update({
-          current_price: pos.current_price,
-          unrealized_pnl: pos.unrealized_pnl,
-          unrealized_pnl_pct: pos.pnl_pct,
-        })
-        .eq('user_id', userId)
-        .eq('symbol', pos.symbol)
-        .is('closed_at', null)
-    }
-  }
-
-  // Update user stats with today's P&L
-  await supabase
-    .from('user_stats')
-    .upsert({
-      user_id: userId,
-      pnl_today: pnl_today ?? 0,
-      updated_at: new Date().toISOString(),
-    }, {
-      onConflict: 'user_id'
-    })
 
   return NextResponse.json({ ok: true })
 }
@@ -217,33 +187,7 @@ async function handleTradeClose(userId: string, data: any) {
     return NextResponse.json({ error: 'Failed to close trade' }, { status: 500 })
   }
 
-  // Recalculate user stats
-  const { data: trades } = await supabase
-    .from('trades')
-    .select('pnl, strategy')
-    .eq('user_id', userId)
-    .not('closed_at', 'is', null)
-
-  if (trades) {
-    const totalPnl = trades.reduce((sum, t) => sum + (t.pnl || 0), 0)
-    const wins = trades.filter(t => (t.pnl || 0) > 0).length
-    const losses = trades.filter(t => (t.pnl || 0) < 0).length
-    const winRate = trades.length > 0 ? (wins / trades.length) * 100 : 0
-
-    await supabase
-      .from('user_stats')
-      .upsert({
-        user_id: userId,
-        total_pnl: totalPnl,
-        total_trades: trades.length,
-        wins,
-        losses,
-        win_rate_pct: winRate,
-        updated_at: new Date().toISOString(),
-      }, {
-        onConflict: 'user_id'
-      })
-  }
+  // user_stats is a database VIEW — no need to upsert, it auto-calculates from trades
 
   return NextResponse.json({ ok: true })
 }

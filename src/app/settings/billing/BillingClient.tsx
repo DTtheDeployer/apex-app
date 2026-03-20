@@ -161,6 +161,15 @@ export default function BillingClient({ profile }: Props) {
                   {loading === plan.key ? 'Loading…' : 'Upgrade'}
                 </button>
               )}
+              {!isCurrent && !isUpgrade && currentPlan !== 'starter' && (
+                <button
+                  onClick={manageSubscription}
+                  disabled={loading === 'portal'}
+                  className="btn-secondary flex-shrink-0 disabled:opacity-50 text-sm"
+                >
+                  {loading === 'portal' ? 'Loading…' : 'Downgrade'}
+                </button>
+              )}
             </div>
           )
         })}

@@ -86,9 +86,7 @@ export async function POST(request: NextRequest) {
         regime: 'UNKNOWN',
         macro_context: 'NONE',
         paper: true,
-        current_price: entry_price,
-        unrealized_pnl: 0,
-        unrealized_pnl_pct: 0,
+        opened_at: now,
         created_at: now,
       })
 
@@ -97,9 +95,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to create trade' }, { status: 500 })
     }
 
-    // Also save to positions table for bot sync
-    const { error: positionError } = await supabase
-      .from('positions')
+    // Also save to paper_positions for bot sync
+    await supabase
+      .from('paper_positions')
       .insert({
         id: tradeId,
         user_id,
@@ -116,11 +114,6 @@ export async function POST(request: NextRequest) {
         strategy: 'MANUAL',
         explanation: `Manual ${side} trade placed via dashboard`,
       })
-
-    if (positionError) {
-      console.error('Position insert error:', positionError)
-      // Don't fail - the trade is already in trades table
-    }
 
     return NextResponse.json({ 
       ok: true, 

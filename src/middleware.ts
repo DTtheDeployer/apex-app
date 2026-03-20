@@ -30,12 +30,16 @@ export async function middleware(request: NextRequest) {
     pathname === '/' ||
     pathname === '/login' ||
     pathname === '/signup' ||
+    pathname === '/forgot-password' ||
+    pathname === '/terms' ||
+    pathname === '/privacy' ||
     pathname.startsWith('/auth/') ||
     pathname.startsWith('/api/auth/') ||
     pathname.startsWith('/api/webhooks/') ||
     pathname.startsWith('/api/bot/sync') ||
     (pathname.startsWith('/api/bot/close') && request.method === 'GET') ||
     pathname.startsWith('/api/bot/positions') ||
+    pathname.startsWith('/api/bot/settings') ||
     pathname.startsWith('/api/prices')
 
   if (!user && !isPublicRoute) {

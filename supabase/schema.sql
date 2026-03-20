@@ -12,10 +12,12 @@ create table public.profiles (
   id              uuid references auth.users(id) on delete cascade primary key,
   email           text,
   full_name       text,
-  plan            text not null default 'starter',   -- starter | pro | elite
+  plan            text not null default 'starter'
+    check (plan in ('starter', 'pro', 'elite')),
   stripe_customer_id    text unique,
   stripe_subscription_id text unique,
-  subscription_status   text default 'inactive',     -- active | inactive | past_due | canceled
+  subscription_status   text default 'inactive'
+    check (subscription_status in ('active', 'inactive', 'past_due', 'canceled')),
   subscription_period_end timestamptz,
   created_at      timestamptz default now(),
   updated_at      timestamptz default now()
@@ -28,15 +30,17 @@ create table public.bot_configs (
   user_id         uuid references public.profiles(id) on delete cascade unique,
   -- Hyperliquid credentials (encrypted at app layer before storing)
   hl_wallet_address text,
-  hl_private_key_enc text,    -- AES-256 encrypted, key = user's session secret
+  hl_private_key_enc text,    -- AES-256-GCM encrypted
   -- Trading settings
   symbols         text[] default array['BTC','ETH'],
-  leverage        int default 3,
-  max_position_pct float default 0.10,
-  max_daily_loss_pct float default 0.05,
-  max_positions   int default 4,
+  leverage        int default 3 check (leverage >= 1 and leverage <= 20),
+  max_position_pct float default 0.10 check (max_position_pct > 0 and max_position_pct <= 1),
+  max_daily_loss_pct float default 0.05 check (max_daily_loss_pct > 0 and max_daily_loss_pct <= 1),
+  max_positions   int default 4 check (max_positions >= 1 and max_positions <= 10),
   interval_minutes int default 60,
   testnet         boolean default true,
+  -- Active strategy
+  strategy        text default 'apex_adaptive',
   -- Strategy weights (null = use regime-adaptive defaults)
   weight_ma_cross       float,
   weight_mean_reversion float,
@@ -55,14 +59,14 @@ create table public.bot_configs (
 );
 
 -- ── TRADES ───────────────────────────────────────────────────
--- Synced from apex_trades.jsonl by the bot
+-- Synced from the bot
 create table public.trades (
   id              uuid primary key default uuid_generate_v4(),
   user_id         uuid references public.profiles(id) on delete cascade,
   external_id     text unique,   -- from apex_trades.jsonl id field
   type            text,          -- signal | close
-  symbol          text,
-  side            text,          -- LONG | SHORT
+  symbol          text not null,
+  side            text not null check (side in ('LONG', 'SHORT')),
   entry_price     float,
   exit_price      float,
   size            float,
@@ -77,17 +81,21 @@ create table public.trades (
   net_score       float,
   regime          text,          -- TRENDING_UP | TRENDING_DOWN | RANGING | VOLATILE
   macro_context   text,          -- NONE | CAUTION | FREEZE | REACTIVE
+  strategy        text,          -- apex_adaptive | momentum_rider | etc.
+  explanation     text,          -- plain-English trade reasoning
   paper           boolean default true,
   opened_at       timestamptz,
   closed_at       timestamptz,
-  created_at      timestamptz default now()
+  created_at      timestamptz default now(),
+  updated_at      timestamptz default now()
 );
 
 -- ── BOT HEARTBEATS ───────────────────────────────────────────
 -- Bot pings this every cycle so dashboard shows live/offline status
+-- One row per user (upserted each cycle)
 create table public.bot_heartbeats (
   id              uuid primary key default uuid_generate_v4(),
-  user_id         uuid references public.profiles(id) on delete cascade,
+  user_id         uuid references public.profiles(id) on delete cascade unique,
   equity          float,
   open_positions  int default 0,
   regime          text,
@@ -95,11 +103,14 @@ create table public.bot_heartbeats (
   cycles_today    int default 0,
   trades_today    int default 0,
   pnl_today       float default 0,
-  created_at      timestamptz default now()
+  unrealized_pnl  float default 0,
+  positions       jsonb default '[]'::jsonb,
+  signal_radar    jsonb default '[]'::jsonb,
+  created_at      timestamptz default now(),
+  updated_at      timestamptz default now()
 );
 
--- Keep only last 48h of heartbeats
-create index idx_heartbeats_user_time on public.bot_heartbeats(user_id, created_at desc);
+create index idx_heartbeats_user_time on public.bot_heartbeats(user_id, updated_at desc);
 
 -- ── EQUITY SNAPSHOTS ─────────────────────────────────────────
 -- Hourly equity for the portfolio chart
@@ -112,6 +123,42 @@ create table public.equity_snapshots (
 
 create index idx_equity_user_time on public.equity_snapshots(user_id, snapshot_at desc);
 
+-- ── PAPER POSITIONS ─────────────────────────────────────────
+-- Active paper-trading positions synced by the bot
+create table public.paper_positions (
+  id              uuid primary key default uuid_generate_v4(),
+  user_id         uuid references public.profiles(id) on delete cascade,
+  symbol          text not null,
+  side            text not null check (side in ('LONG', 'SHORT')),
+  entry_price     float not null,
+  size            float not null,
+  leverage        int default 1,
+  stop_loss       float,
+  take_profit     float,
+  entry_time      timestamptz default now(),
+  regime          text,
+  macro           text,
+  strategy        text,
+  explanation     text,
+  created_at      timestamptz default now()
+);
+
+create index idx_paper_positions_user on public.paper_positions(user_id);
+
+-- ── BOT COMMANDS ────────────────────────────────────────────
+-- Queue for dashboard → bot commands (e.g. close position)
+create table public.bot_commands (
+  id              uuid primary key default uuid_generate_v4(),
+  user_id         uuid references public.profiles(id) on delete cascade,
+  command         text not null,
+  payload         jsonb default '{}'::jsonb,
+  status          text default 'pending' check (status in ('pending', 'completed', 'failed')),
+  created_at      timestamptz default now(),
+  processed_at    timestamptz
+);
+
+create index idx_bot_commands_pending on public.bot_commands(user_id, status) where status = 'pending';
+
 -- ── INDEXES ──────────────────────────────────────────────────
 create index idx_trades_user      on public.trades(user_id, created_at desc);
 create index idx_trades_symbol    on public.trades(symbol);
@@ -123,6 +170,8 @@ alter table public.bot_configs        enable row level security;
 alter table public.trades             enable row level security;
 alter table public.bot_heartbeats     enable row level security;
 alter table public.equity_snapshots   enable row level security;
+alter table public.paper_positions    enable row level security;
+alter table public.bot_commands       enable row level security;
 
 -- profiles: users can only read/write their own row
 create policy "own profile" on public.profiles
@@ -142,6 +191,14 @@ create policy "own heartbeats" on public.bot_heartbeats
 
 -- equity snapshots: own rows only
 create policy "own equity" on public.equity_snapshots
+  for all using (auth.uid() = user_id);
+
+-- paper positions: own rows only
+create policy "own paper positions" on public.paper_positions
+  for all using (auth.uid() = user_id);
+
+-- bot commands: own rows only
+create policy "own bot commands" on public.bot_commands
   for all using (auth.uid() = user_id);
 
 -- ── AUTO-CREATE PROFILE ON SIGNUP ────────────────────────────
@@ -169,12 +226,13 @@ returns trigger language plpgsql as $$
 begin new.updated_at = now(); return new; end;
 $$;
 
-create trigger profiles_updated_at    before update on public.profiles    for each row execute function public.set_updated_at();
-create trigger bot_configs_updated_at before update on public.bot_configs  for each row execute function public.set_updated_at();
+create trigger profiles_updated_at    before update on public.profiles        for each row execute function public.set_updated_at();
+create trigger bot_configs_updated_at before update on public.bot_configs      for each row execute function public.set_updated_at();
+create trigger trades_updated_at      before update on public.trades           for each row execute function public.set_updated_at();
+create trigger heartbeats_updated_at  before update on public.bot_heartbeats   for each row execute function public.set_updated_at();
 
 -- ── USEFUL VIEWS ─────────────────────────────────────────────
--- Note: views inherit RLS from underlying tables, but we also add
--- a policy via a security_invoker view so each user sees only their own row.
+-- user_stats: auto-calculated from trades (read-only view)
 create or replace view public.user_stats
   with (security_invoker = true)
 as

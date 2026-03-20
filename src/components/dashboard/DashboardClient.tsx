@@ -4,7 +4,7 @@ import AIChatWidget from '@/components/AIChatWidget'
 import PnlBadge from '@/components/ui/PnlBadge'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { AreaChart, Area, ResponsiveContainer } from 'recharts'
+import { AreaChart, Area, YAxis, ResponsiveContainer } from 'recharts'
 import { RefreshCw, Zap, Clock, TrendingUp, TrendingDown, Minus, Settings, AlertTriangle, X, Info, ChevronDown, ChevronUp, Power, Target, Crown, Crosshair, Trophy, BarChart3, ArrowRight, Sparkles, Activity } from 'lucide-react'
 import type { Profile, BotConfig, Trade, BotHeartbeat, EquitySnapshot, UserStats } from '@/types'
 
@@ -339,7 +339,7 @@ export default function DashboardClient({
 
   const currentLeverage = LEVERAGE_LEVELS.find(l => l.id === leverage) || LEVERAGE_LEVELS[2]
 
-  const heartbeatAge = heartbeat ? Date.now() - new Date(heartbeat.created_at).getTime() : Infinity
+  const heartbeatAge = heartbeat ? Date.now() - new Date(heartbeat.updated_at || heartbeat.created_at).getTime() : Infinity
   const botOnline = heartbeatAge < 3 * 60 * 1000       // Green: heartbeat within 3 min
   const botStale = heartbeatAge < 10 * 60 * 1000        // Amber: within 10 min
   const botStatus = botOnline ? 'live' : botStale ? 'stale' : 'offline'
@@ -1051,6 +1051,8 @@ export default function DashboardClient({
                   <stop offset="100%" stopColor="#ef4444" stopOpacity={0.15} />
                 </linearGradient>
               </defs>
+              <YAxis yAxisId="equity" hide domain={['dataMin', 'dataMax']} />
+              <YAxis yAxisId="drawdown" hide orientation="right" />
               <Area type="monotone" dataKey="equity" stroke="#00d084" strokeWidth={1.5} fill="url(#eq)" dot={false} yAxisId="equity" />
               <Area type="monotone" dataKey="drawdown" stroke="#ef4444" strokeWidth={1} strokeDasharray="3 3" fill="url(#dd)" dot={false} yAxisId="drawdown" />
             </AreaChart>

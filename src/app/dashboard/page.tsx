@@ -26,11 +26,11 @@ export default async function DashboardPage() {
     supabase.from('trades').select('*').eq('user_id', userId)
       .order('created_at', { ascending: false }).limit(10),
     supabase.from('bot_heartbeats').select('*').eq('user_id', userId)
-      .order('created_at', { ascending: false }).limit(1).single(),
+      .order('updated_at', { ascending: false }).limit(1).single(),
     supabase.from('equity_snapshots').select('*').eq('user_id', userId)
       .order('snapshot_at', { ascending: true }).limit(90),
     supabase.from('user_stats').select('*').eq('user_id', userId).single(),
-    supabase.from('bot_settings').select('enabled, strategy').eq('user_id', userId).single(),
+    supabase.from('bot_configs').select('bot_enabled, strategy').eq('user_id', userId).single(),
     supabase.from('trades').select('strategy, pnl, closed_at').eq('user_id', userId).not('closed_at', 'is', null),
   ])
 
@@ -62,7 +62,7 @@ export default async function DashboardPage() {
       heartbeat={heartbeat}
       equityHistory={equityHistory ?? []}
       stats={stats}
-      botEnabled={botSettings?.enabled ?? true}
+      botEnabled={botSettings?.bot_enabled ?? true}
       currentStrategy={botSettings?.strategy ?? 'apex_adaptive'}
       strategyStats={strategyStats}
     />

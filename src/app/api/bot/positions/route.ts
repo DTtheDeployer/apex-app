@@ -11,7 +11,7 @@ const supabase = createClient(
 export async function GET(request: NextRequest) {
   const secret = request.headers.get('x-bot-secret')
 
-  if (secret !== process.env.BOT_API_SECRET) {
+  if (!secret || secret !== process.env.BOT_API_SECRET) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const secret = request.headers.get('x-bot-secret')
 
-  if (secret !== process.env.BOT_API_SECRET) {
+  if (!secret || secret !== process.env.BOT_API_SECRET) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const secret = request.headers.get('x-bot-secret')
 
-  if (secret !== process.env.BOT_API_SECRET) {
+  if (!secret || secret !== process.env.BOT_API_SECRET) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

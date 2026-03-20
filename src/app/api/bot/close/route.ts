@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get('user_id')
   const secret = request.headers.get('x-bot-secret')
 
-  if (secret !== process.env.BOT_API_SECRET) {
+  if (!secret || secret !== process.env.BOT_API_SECRET) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const secret = request.headers.get('x-bot-secret')
 
-  if (secret !== process.env.BOT_API_SECRET) {
+  if (!secret || secret !== process.env.BOT_API_SECRET) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

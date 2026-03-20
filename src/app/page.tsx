@@ -583,9 +583,9 @@ export default function LandingPage() {
               Trading involves significant risk. Past performance does not guarantee future results.
             </p>
             <div className="flex items-center gap-6 text-sm text-white/35">
-              <a href="#" className="hover:text-white transition-colors">Terms</a>
-              <a href="#" className="hover:text-white transition-colors">Privacy</a>
-              <a href="#" className="hover:text-white transition-colors">Contact</a>
+              <Link href="/terms" className="hover:text-white transition-colors">Terms</Link>
+              <Link href="/privacy" className="hover:text-white transition-colors">Privacy</Link>
+              <a href="mailto:support@apexhl.trade" className="hover:text-white transition-colors">Contact</a>
             </div>
           </div>
         </div>
