@@ -29,7 +29,9 @@ export async function middleware(request: NextRequest) {
   const isPublicRoute =
     pathname === '/' ||
     pathname === '/login' ||
+    pathname === '/signup' ||
     pathname.startsWith('/auth/') ||
+    pathname.startsWith('/api/auth/') ||
     pathname.startsWith('/api/webhooks/') ||
     pathname.startsWith('/api/bot/sync') ||
     (pathname.startsWith('/api/bot/close') && request.method === 'GET') ||
